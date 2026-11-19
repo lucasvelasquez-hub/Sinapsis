@@ -1,11 +1,7 @@
 from fastapi.testclient import TestClient
 
-from app.main import app
 
-client = TestClient(app)
-
-
-def test_full_dispatch_recommendation_decision_flow() -> None:
+def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
     # 1. Overview & Demand
     ov = client.get("/api/v1/analytics/overview")
     assert ov.status_code == 200
