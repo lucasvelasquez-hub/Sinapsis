@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta
 import uuid
+from datetime import timedelta
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -31,13 +32,17 @@ def _build_request_context(db: Session, srv: RawService) -> RequestContext:
     cutoff_8h = dt - timedelta(hours=8)
     cutoff_4h = dt - timedelta(hours=4)
 
-    recent_dts = db.execute(
-        select(RawService.request_datetime).where(
-            RawService.zone_id == srv.zone_id,
-            RawService.request_datetime >= cutoff_12h,
-            RawService.request_datetime < dt,
+    recent_dts = (
+        db.execute(
+            select(RawService.request_datetime).where(
+                RawService.zone_id == srv.zone_id,
+                RawService.request_datetime >= cutoff_12h,
+                RawService.request_datetime < dt,
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     d12 = len(recent_dts)
     d8 = sum(1 for ts in recent_dts if ts >= cutoff_8h)

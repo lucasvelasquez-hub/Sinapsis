@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -27,7 +28,9 @@ class RecommendationCandidate(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     recommendation_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("decision.recommendations.recommendation_id", ondelete="CASCADE"), index=True
+        String(36),
+        ForeignKey("decision.recommendations.recommendation_id", ondelete="CASCADE"),
+        index=True,
     )
     unit_id: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     rank: Mapped[int] = mapped_column(Integer, nullable=False)

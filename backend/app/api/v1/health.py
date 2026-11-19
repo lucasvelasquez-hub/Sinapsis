@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -28,5 +28,5 @@ def get_health() -> HealthResponse:
         version=settings.app_version,
         environment=settings.environment,
         database="connected" if db_ok else "disconnected",
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )

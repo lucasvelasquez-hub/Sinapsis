@@ -1,4 +1,5 @@
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -11,9 +12,11 @@ def get_or_create_simulation_session(db: Session) -> SimulationSession:
     session = db.get(SimulationSession, "default")
     if session is None:
         latest = db.execute(
-            select(RawService.request_datetime).order_by(RawService.request_datetime.desc()).limit(1)
+            select(RawService.request_datetime)
+            .order_by(RawService.request_datetime.desc())
+            .limit(1)
         ).scalar_one_or_none()
-        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
         session = SimulationSession(
             session_id="default",
             current_sim_datetime=latest or now_utc,
@@ -70,13 +73,17 @@ def get_unit_workload_windows(
     cutoff_8h = ref_dt - timedelta(hours=8)
     cutoff_4h = ref_dt - timedelta(hours=4)
 
-    rows = db.execute(
-        select(RawService.request_datetime).where(
-            RawService.assigned_unit_id == unit_id,
-            RawService.request_datetime >= cutoff_12h,
-            RawService.request_datetime < ref_dt,
+    rows = (
+        db.execute(
+            select(RawService.request_datetime).where(
+                RawService.assigned_unit_id == unit_id,
+                RawService.request_datetime >= cutoff_12h,
+                RawService.request_datetime < ref_dt,
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
 
     w12 = len(rows)
     w8 = sum(1 for dt in rows if dt >= cutoff_8h)
@@ -103,6 +110,6 @@ def mark_unit_assigned_in_simulation(
     sim.active_assignments_json = assignments
     if start_dt > sim.current_sim_datetime:
         sim.current_sim_datetime = start_dt
-    sim.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    sim.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.add(sim)
     return sim

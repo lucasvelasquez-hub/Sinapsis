@@ -1,8 +1,7 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter
 from sqlalchemy import select
-from sqlalchemy.orm import Session
 
-from app.core.database import get_db
+from app.core.database import DbSession
 from app.core.exceptions import ResourceNotFoundError
 from app.models.raw import RawService, RawUnit
 from app.schemas.dispatch import EligibilityEvaluation, UnitStatusOut
@@ -17,7 +16,7 @@ router = APIRouter(prefix="/fleet", tags=["fleet"])
 
 
 @router.get("/units", response_model=list[UnitStatusOut])
-def get_fleet_units(db: Session = Depends(get_db)) -> list[UnitStatusOut]:
+def get_fleet_units(db: DbSession) -> list[UnitStatusOut]:
     sim = get_or_create_simulation_session(db)
     ref_dt = sim.current_sim_datetime
     units = db.execute(select(RawUnit).order_by(RawUnit.unit_id.asc())).scalars().all()
@@ -48,7 +47,7 @@ def get_fleet_units(db: Session = Depends(get_db)) -> list[UnitStatusOut]:
 @router.get("/eligibility/{request_id}", response_model=EligibilityEvaluation)
 def get_fleet_eligibility(
     request_id: str,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ) -> EligibilityEvaluation:
     service = db.get(RawService, request_id)
     if service is None:

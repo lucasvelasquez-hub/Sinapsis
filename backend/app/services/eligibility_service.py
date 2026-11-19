@@ -1,4 +1,5 @@
 from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -71,9 +72,7 @@ def evaluate_eligibility(
             )
 
         if not shift_covers_hour(unit.shift, ref_dt.hour):
-            reasons.append(
-                f"OUT_OF_SHIFT: Turno {unit.shift} no cubre las {ref_dt.hour:02d}:00"
-            )
+            reasons.append(f"OUT_OF_SHIFT: Turno {unit.shift} no cubre las {ref_dt.hour:02d}:00")
 
         busy_until = get_unit_busy_until(db, unit.unit_id, ref_dt, sim_session)
         if busy_until is not None:

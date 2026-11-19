@@ -19,9 +19,14 @@ def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
         select(func.count()).select_from(RawService).where(RawService.status == "PENDING")
     ).scalar_one()
 
-    avg_resp = db.execute(
-        select(func.avg(RawService.response_time_min)).where(RawService.response_time_min.is_not(None))
-    ).scalar_one() or 0.0
+    avg_resp = (
+        db.execute(
+            select(func.avg(RawService.response_time_min)).where(
+                RawService.response_time_min.is_not(None)
+            )
+        ).scalar_one()
+        or 0.0
+    )
 
     sla_total = db.execute(
         select(func.count()).select_from(ServiceFeature).where(ServiceFeature.sla_met.is_not(None))
@@ -41,11 +46,15 @@ def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
 
     total_decisions = db.execute(select(func.count()).select_from(DispatchDecision)).scalar_one()
     accepted_decisions = db.execute(
-        select(func.count()).select_from(DispatchDecision).where(DispatchDecision.accepted.is_(True))
+        select(func.count())
+        .select_from(DispatchDecision)
+        .where(DispatchDecision.accepted.is_(True))
     ).scalar_one()
 
     metrics_rows = db.execute(select(PredictionResult)).scalars().all()
-    selected_model = next((m.model_name for m in metrics_rows if m.is_selected), "statistical_baseline")
+    selected_model = next(
+        (m.model_name for m in metrics_rows if m.is_selected), "statistical_baseline"
+    )
     model_metrics = [
         ModelMetricOut(
             model_name=m.model_name,

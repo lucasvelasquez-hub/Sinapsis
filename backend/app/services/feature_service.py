@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import delete, select
@@ -17,9 +17,15 @@ def compute_chronological_features(db: Session) -> int:
     For each service sorted chronologically by request_datetime, rolling zone
     demand (4h, 8h, 12h) counts only strictly preceding requests in the same zone.
     """
-    services = db.execute(
-        select(RawService).order_by(RawService.request_datetime.asc(), RawService.service_id.asc())
-    ).scalars().all()
+    services = (
+        db.execute(
+            select(RawService).order_by(
+                RawService.request_datetime.asc(), RawService.service_id.asc()
+            )
+        )
+        .scalars()
+        .all()
+    )
     targets = {
         t.urgency_level: t.target_response_min
         for t in db.execute(select(RawResponseTarget)).scalars().all()
@@ -29,7 +35,7 @@ def compute_chronological_features(db: Session) -> int:
     db.execute(delete(DemandAggregate))
 
     zone_windows_12h: dict[str, deque[datetime]] = defaultdict(deque)
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
 
     feature_rows: list[ServiceFeature] = []
     agg_records: list[dict] = []
@@ -57,9 +63,7 @@ def compute_chronological_features(db: Session) -> int:
         is_peak = (7 <= hour <= 10) or (17 <= hour <= 20)
         target_min = targets.get(srv.urgency_level, 30)
         sla_met = (
-            bool(srv.response_time_min <= target_min)
-            if srv.response_time_min is not None
-            else None
+            bool(srv.response_time_min <= target_min) if srv.response_time_min is not None else None
         )
 
         feature_rows.append(
@@ -98,13 +102,10 @@ def compute_chronological_features(db: Session) -> int:
         df = pd.DataFrame(agg_records)
         agg_objs: list[DemandAggregate] = []
         for dim in ("zone", "hour", "day", "urgency", "service_type", "unit_id"):
-            grouped = (
-                df.groupby(dim, as_index=False)
-                .agg(
-                    service_count=("response_time_min", "count"),
-                    avg_response_min=("response_time_min", "mean"),
-                    sla_compliance_rate=("sla_met", "mean"),
-                )
+            grouped = df.groupby(dim, as_index=False).agg(
+                service_count=("response_time_min", "count"),
+                avg_response_min=("response_time_min", "mean"),
+                sla_compliance_rate=("sla_met", "mean"),
             )
             for row in grouped.itertuples(index=False):
                 agg_objs.append(

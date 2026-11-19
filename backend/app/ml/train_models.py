@@ -11,10 +11,10 @@ No temporal leakage: uses only features known at request_datetime.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import pickle
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -29,8 +29,8 @@ from sqlalchemy import delete
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
-from app.core.database import SessionLocal, engine  # noqa: E402
-from app.models.analytics import PredictionResult  # noqa: E402
+from app.core.database import SessionLocal, engine
+from app.models.analytics import PredictionResult
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "model_artifact.pkl"
 
@@ -46,7 +46,10 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
 
 
 class ContextualStatisticalBaseline:
-    """Hierarchical median lookup by (urgency, service_type, zone) -> (urgency, service_type) -> urgency -> global."""
+    """Hierarchical median lookup.
+
+    (urgency, service_type, zone) -> (urgency, service_type) -> urgency -> global.
+    """
 
     def __init__(self) -> None:
         self.lvl3: dict[tuple[str, str, str], float] = {}
@@ -147,7 +150,10 @@ def train_and_evaluate() -> dict:
     rf_pipe = Pipeline(
         [
             ("prep", preprocessor),
-            ("model", RandomForestRegressor(n_estimators=120, max_depth=12, random_state=42, n_jobs=-1)),
+            (
+                "model",
+                RandomForestRegressor(n_estimators=120, max_depth=12, random_state=42, n_jobs=-1),
+            ),
         ]
     )
     rf_pipe.fit(train_df[feature_cols], train_df["response_time_min"])
@@ -172,7 +178,7 @@ def train_and_evaluate() -> dict:
             best_val_mae = val_m["mae"]
             best_name = name
 
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
     with SessionLocal() as db:
         db.execute(delete(PredictionResult))
         for name, val_m, test_m, _ in candidates:
@@ -205,9 +211,9 @@ def train_and_evaluate() -> dict:
             "lvl1": baseline.lvl1,
             "global_median": baseline.global_median,
         },
-        "ml_model": rf_pipe if best_name == "random_forest_regressor" else (
-            lin_pipe if best_name == "linear_regression_ridge" else None
-        ),
+        "ml_model": rf_pipe
+        if best_name == "random_forest_regressor"
+        else (lin_pipe if best_name == "linear_regression_ridge" else None),
         "feature_cols": feature_cols,
         "trained_at": now_utc.isoformat(),
     }

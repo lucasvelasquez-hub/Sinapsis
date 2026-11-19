@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from fastapi import APIRouter
 
-from app.core.database import get_db
+from app.core.database import DbSession
 from app.schemas.dispatch import EvaluateRecommendationRequest, RecommendationOut
 from app.services.recommendation_service import (
     evaluate_recommendations,
@@ -14,7 +13,7 @@ router = APIRouter(prefix="/recommendations", tags=["recommendations"])
 @router.post("/evaluate", response_model=RecommendationOut)
 def evaluate(
     payload: EvaluateRecommendationRequest,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ) -> RecommendationOut:
     return evaluate_recommendations(db, payload.service_id)
 
@@ -22,6 +21,6 @@ def evaluate(
 @router.get("/{recommendation_id}", response_model=RecommendationOut)
 def get_recommendation(
     recommendation_id: str,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ) -> RecommendationOut:
     return get_recommendation_by_id(db, recommendation_id)

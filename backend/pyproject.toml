@@ -25,9 +25,18 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-testpaths = ["app/tests", "tests"]
+testpaths = ["tests"]
 pythonpath = ["."]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["alembic/versions"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "RUF"]
+ignore = ["RUF001", "RUF002", "RUF003"]  # textos en español con tildes/guiones
+
+[tool.ruff.lint.per-file-ignores]
+"app/models/*.py" = ["RUF012"]  # __table_args__ de SQLAlchemy
+"app/ml/train_models.py" = ["E402"]

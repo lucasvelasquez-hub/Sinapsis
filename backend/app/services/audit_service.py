@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.core import AuditEvent
@@ -19,7 +20,7 @@ def record_audit_event(
         entity_type=entity_type,
         entity_id=entity_id,
         payload_json=payload or {},
-        created_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        created_at=datetime.now(UTC).replace(tzinfo=None),
     )
     db.add(event)
     return event

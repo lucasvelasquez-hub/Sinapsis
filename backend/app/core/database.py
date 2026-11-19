@@ -1,5 +1,7 @@
 from collections.abc import Generator
+from typing import Annotated
 
+from fastapi import Depends
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -36,3 +38,7 @@ def check_db_connection() -> bool:
         return True
     except Exception:
         return False
+
+
+DbSession = Annotated[Session, Depends(get_db)]
+"""Per-request DB session dependency for routers."""

@@ -6,7 +6,12 @@ from fastapi.responses import JSONResponse
 class CoreDomainError(Exception):
     """Base exception for domain-level operational errors."""
 
-    def __init__(self, message: str, status_code: int = status.HTTP_400_BAD_REQUEST, code: str = "DOMAIN_ERROR") -> None:
+    def __init__(
+        self,
+        message: str,
+        status_code: int = status.HTTP_400_BAD_REQUEST,
+        code: str = "DOMAIN_ERROR",
+    ) -> None:
         self.message = message
         self.status_code = status_code
         self.code = code

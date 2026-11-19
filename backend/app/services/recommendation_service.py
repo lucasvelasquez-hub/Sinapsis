@@ -1,5 +1,6 @@
-from datetime import datetime, timezone
 import uuid
+from datetime import UTC, datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -38,7 +39,7 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
 
     eligibility, compat_ranks = evaluate_eligibility(db, service, service.request_datetime)
     rec_id = str(uuid.uuid4())
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
 
     if not eligibility.eligible_units:
         rec = Recommendation(
@@ -58,7 +59,10 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
             event_type="RECOMMENDATION_NO_ELIGIBLE_UNITS",
             entity_type="recommendation",
             entity_id=rec_id,
-            payload={"service_id": service.service_id, "excluded_count": len(eligibility.excluded_units)},
+            payload={
+                "service_id": service.service_id,
+                "excluded_count": len(eligibility.excluded_units),
+            },
         )
         db.commit()
         return RecommendationOut(
@@ -110,7 +114,9 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
             "Disponibilidad simulada basada en cierre histórico como proxy de ocupación.",
         ]
         if unit.base_zone_id != service.zone_id:
-            warnings.append(f"Unidad asignada a base {unit.base_zone_id} (fuera de {service.zone_id}).")
+            warnings.append(
+                f"Unidad asignada a base {unit.base_zone_id} (fuera de {service.zone_id})."
+            )
 
         scored_items.append(
             {
@@ -126,7 +132,7 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
             }
         )
 
-    # Sort by score ascending (lower is better), tie-break by compatibility_rank then expected_response_min
+    # Score ascending (lower is better); tie-break: compatibility_rank, expected_response_min
     scored_items.sort(
         key=lambda x: (x["score"], x["compatibility_rank"], x["expected_response_min"])
     )
@@ -221,11 +227,15 @@ def get_recommendation_by_id(db: Session, recommendation_id: str) -> Recommendat
     if rec is None:
         raise ResourceNotFoundError("Recommendation", recommendation_id)
 
-    cands = db.execute(
-        select(RecommendationCandidate)
-        .where(RecommendationCandidate.recommendation_id == recommendation_id)
-        .order_by(RecommendationCandidate.rank.asc())
-    ).scalars().all()
+    cands = (
+        db.execute(
+            select(RecommendationCandidate)
+            .where(RecommendationCandidate.recommendation_id == recommendation_id)
+            .order_by(RecommendationCandidate.rank.asc())
+        )
+        .scalars()
+        .all()
+    )
 
     units_map = {u.unit_id: u for u in db.execute(select(RawUnit)).scalars().all()}
     candidate_outs = []

@@ -1,5 +1,6 @@
-from datetime import datetime, timedelta, timezone
 import uuid
+from datetime import UTC, datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,7 +28,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
     if not payload.accepted and not payload.assigned_unit_id and not payload.rejection_reason:
         raise CoreDomainError("rejection_reason is required when rejecting all recommendations.")
 
-    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_utc = datetime.now(UTC).replace(tzinfo=None)
     decision_id = str(uuid.uuid4())
 
     decision = DispatchDecision(
@@ -89,12 +90,16 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
 
 
 def list_decisions(db: Session, limit: int = 50, offset: int = 0) -> list[DecisionOut]:
-    rows = db.execute(
-        select(DispatchDecision)
-        .order_by(DispatchDecision.decision_datetime.desc())
-        .limit(limit)
-        .offset(offset)
-    ).scalars().all()
+    rows = (
+        db.execute(
+            select(DispatchDecision)
+            .order_by(DispatchDecision.decision_datetime.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        .scalars()
+        .all()
+    )
     return [
         DecisionOut(
             decision_id=r.decision_id,

@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+
 from sqlalchemy.orm import Session
 
 from app.models.core import ScoringConfig
@@ -16,7 +17,7 @@ def get_scoring_config(db: Session) -> ScoringConfig:
             weight_coverage=0.00,
             cost_enabled=False,
             coverage_enabled=False,
-            updated_at=datetime.now(timezone.utc).replace(tzinfo=None),
+            updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db.add(cfg)
         db.commit()

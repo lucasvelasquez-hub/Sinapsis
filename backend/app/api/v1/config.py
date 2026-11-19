@@ -1,8 +1,8 @@
-from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
-from sqlalchemy.orm import Session
+from datetime import UTC, datetime
 
-from app.core.database import get_db
+from fastapi import APIRouter
+
+from app.core.database import DbSession
 from app.core.exceptions import CoreDomainError
 from app.schemas.dispatch import ScoringConfigOut, ScoringConfigUpdate
 from app.services.audit_service import record_audit_event
@@ -12,7 +12,7 @@ router = APIRouter(prefix="/config", tags=["config"])
 
 
 @router.get("/scoring", response_model=ScoringConfigOut)
-def read_scoring_config(db: Session = Depends(get_db)) -> ScoringConfigOut:
+def read_scoring_config(db: DbSession) -> ScoringConfigOut:
     cfg = get_scoring_config(db)
     return ScoringConfigOut(
         config_id=cfg.config_id,
@@ -29,7 +29,7 @@ def read_scoring_config(db: Session = Depends(get_db)) -> ScoringConfigOut:
 @router.put("/scoring", response_model=ScoringConfigOut)
 def update_scoring_config(
     payload: ScoringConfigUpdate,
-    db: Session = Depends(get_db),
+    db: DbSession,
 ) -> ScoringConfigOut:
     total = round(payload.weight_time + payload.weight_workload, 4)
     if abs(total - 1.0) > 1e-3:
@@ -38,7 +38,7 @@ def update_scoring_config(
     cfg = get_scoring_config(db)
     cfg.weight_time = round(payload.weight_time, 4)
     cfg.weight_workload = round(payload.weight_workload, 4)
-    cfg.updated_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    cfg.updated_at = datetime.now(UTC).replace(tzinfo=None)
     db.add(cfg)
     record_audit_event(
         db,
