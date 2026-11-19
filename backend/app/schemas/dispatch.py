@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 UrgencyLevel = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 ServiceType = Literal[
@@ -50,6 +50,15 @@ class SimulateRequestCreate(BaseModel):
     service_type: ServiceType
     zone_id: str = Field(..., pattern=r"^ZONE-0[1-8]$")
     request_datetime: datetime | None = None
+
+    @field_validator("request_datetime")
+    @classmethod
+    def _naive_operational_time(cls, value: datetime | None) -> datetime | None:
+        # El dataset y los turnos usan hora local operativa sin zona. Convertir un offset
+        # exigiría conocer la zona operativa; descartarlo en silencio corrompe la hora.
+        if value is not None and value.tzinfo is not None:
+            raise ValueError("request_datetime debe ser hora local operativa, sin zona horaria")
+        return value
 
 
 class UnitStatusOut(BaseModel):
@@ -137,6 +146,7 @@ class DecisionOut(BaseModel):
     recommendation_score: float | None
     accepted: bool
     rejection_reason: str | None
+    eligibility_override: list[str] = Field(default_factory=list)
     decision_datetime: datetime
 
 

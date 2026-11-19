@@ -1,3 +1,4 @@
+import logging
 from collections.abc import Generator
 from typing import Annotated
 
@@ -6,6 +7,8 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 # prepare_threshold=None: the Supabase transaction pooler (port 6543) does not
 # support psycopg 3 prepared statements. Harmless against a direct connection.
@@ -37,6 +40,7 @@ def check_db_connection() -> bool:
             conn.execute(text("SELECT 1"))
         return True
     except Exception:
+        logger.exception("Database health check failed")
         return False
 
 

@@ -4,11 +4,12 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import CoreDomainError, ResourceNotFoundError
-from app.models.decision import DispatchDecision
+from app.core.exceptions import ConflictError, CoreDomainError, ResourceNotFoundError
+from app.models.decision import DispatchDecision, Recommendation, RecommendationCandidate
 from app.models.raw import RawService, RawUnit
 from app.schemas.dispatch import DecisionCreate, DecisionOut
 from app.services.audit_service import record_audit_event
+from app.services.eligibility_service import evaluate_eligibility
 from app.services.simulation_service import mark_unit_assigned_in_simulation
 
 
@@ -28,6 +29,19 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
     if not payload.accepted and not payload.assigned_unit_id and not payload.rejection_reason:
         raise CoreDomainError("rejection_reason is required when rejecting all recommendations.")
 
+    if service.status != "PENDING":
+        raise ConflictError(
+            f"Service '{service.service_id}' already has status {service.status}.",
+            code="SERVICE_ALREADY_DECIDED",
+        )
+
+    recommendation_score = _validated_recommendation_score(db, payload)
+    eligibility_override = (
+        _eligibility_override(db, service, payload.assigned_unit_id)
+        if payload.assigned_unit_id
+        else []
+    )
+
     now_utc = datetime.now(UTC).replace(tzinfo=None)
     decision_id = str(uuid.uuid4())
 
@@ -37,9 +51,10 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
         recommendation_id=payload.recommendation_id,
         recommended_unit_id=payload.recommended_unit_id,
         assigned_unit_id=payload.assigned_unit_id,
-        recommendation_score=payload.recommendation_score,
+        recommendation_score=recommendation_score,
         accepted=payload.accepted,
         rejection_reason=payload.rejection_reason,
+        eligibility_override=eligibility_override,
         decision_datetime=now_utc,
     )
     db.add(decision)
@@ -71,6 +86,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             "assigned_unit_id": payload.assigned_unit_id,
             "accepted": payload.accepted,
             "rejection_reason": payload.rejection_reason,
+            "eligibility_override": eligibility_override,
         },
     )
     db.commit()
@@ -85,6 +101,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
         recommendation_score=decision.recommendation_score,
         accepted=decision.accepted,
         rejection_reason=decision.rejection_reason,
+        eligibility_override=decision.eligibility_override,
         decision_datetime=decision.decision_datetime,
     )
 
@@ -110,7 +127,59 @@ def list_decisions(db: Session, limit: int = 50, offset: int = 0) -> list[Decisi
             recommendation_score=r.recommendation_score,
             accepted=r.accepted,
             rejection_reason=r.rejection_reason,
+            eligibility_override=r.eligibility_override,
             decision_datetime=r.decision_datetime,
         )
         for r in rows
     ]
+
+
+def _validated_recommendation_score(db: Session, payload: DecisionCreate) -> float | None:
+    """Check the decision against its recommendation and return the server-side score.
+
+    The client never sets the score: it is read from the persisted candidate.
+    """
+    if payload.recommendation_id is None:
+        if payload.recommended_unit_id is not None:
+            raise CoreDomainError(
+                "recommended_unit_id requires recommendation_id.",
+                code="RECOMMENDATION_MISMATCH",
+            )
+        return None
+
+    rec = db.get(Recommendation, payload.recommendation_id)
+    if rec is None:
+        raise ResourceNotFoundError("Recommendation", payload.recommendation_id)
+    if rec.service_id != payload.service_id:
+        raise CoreDomainError(
+            f"Recommendation '{rec.recommendation_id}' belongs to service '{rec.service_id}'.",
+            code="RECOMMENDATION_MISMATCH",
+        )
+    if payload.recommended_unit_id is None:
+        return None
+
+    candidate = db.execute(
+        select(RecommendationCandidate).where(
+            RecommendationCandidate.recommendation_id == rec.recommendation_id,
+            RecommendationCandidate.unit_id == payload.recommended_unit_id,
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        raise CoreDomainError(
+            f"Unit '{payload.recommended_unit_id}' is not a candidate of this recommendation.",
+            code="RECOMMENDATION_MISMATCH",
+        )
+    return candidate.score
+
+
+def _eligibility_override(db: Session, service: RawService, unit_id: str) -> list[str]:
+    """Exclusion reasons of the assigned unit; empty when it is eligible.
+
+    The dispatcher may assign an excluded unit (the final decision is human), but the
+    override must be recorded with its reasons.
+    """
+    evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
+    for excluded in evaluation.excluded_units:
+        if excluded.unit_id == unit_id:
+            return list(excluded.reasons)
+    return []

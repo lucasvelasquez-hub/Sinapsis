@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -60,4 +60,8 @@ class DispatchDecision(Base):
     recommendation_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Exclusion reasons of the assigned unit when the dispatcher overrode eligibility.
+    eligibility_override: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")
+    )
     decision_datetime: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)

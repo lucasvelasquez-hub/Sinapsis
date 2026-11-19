@@ -138,7 +138,6 @@ def get_request_detail(db: Session, service_id: str) -> RequestDetail:
 def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> RequestDetail:
     sim = get_or_create_simulation_session(db)
     req_dt = payload.request_datetime or (sim.current_sim_datetime + timedelta(minutes=2))
-    req_dt = req_dt.replace(tzinfo=None)
 
     count_synth = db.execute(
         select(func.count()).select_from(RawService).where(RawService.is_synthetic.is_(True))

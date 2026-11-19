@@ -20,8 +20,7 @@ def get_scoring_config(db: Session) -> ScoringConfig:
             updated_at=datetime.now(UTC).replace(tzinfo=None),
         )
         db.add(cfg)
-        db.commit()
-        db.refresh(cfg)
+        db.flush()  # the caller's unit of work decides when to commit
     return cfg
 
 

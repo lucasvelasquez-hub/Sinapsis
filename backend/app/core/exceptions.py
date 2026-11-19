@@ -1,4 +1,5 @@
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
@@ -16,6 +17,13 @@ class CoreDomainError(Exception):
         self.status_code = status_code
         self.code = code
         super().__init__(message)
+
+
+class ConflictError(CoreDomainError):
+    """Raised when the request conflicts with the current state of an entity."""
+
+    def __init__(self, message: str, code: str = "CONFLICT") -> None:
+        super().__init__(message=message, status_code=status.HTTP_409_CONFLICT, code=code)
 
 
 class ResourceNotFoundError(CoreDomainError):
@@ -47,7 +55,7 @@ def register_exception_handlers(app: FastAPI) -> None:
                 "error": {
                     "code": "VALIDATION_ERROR",
                     "message": "Invalid request payload or parameters.",
-                    "details": exc.errors(),
+                    "details": jsonable_encoder(exc.errors()),
                 }
             },
         )
