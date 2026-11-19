@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "enabledMcpjsonServers": ["supabase"],
+  "permissions": {
+    "allow": [
+      "Bash(uv sync)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run alembic current)",
+      "Bash(uv run alembic history *)",
+      "Bash(npm run lint)",
+      "Bash(npm run build)",
+      "Bash(npx vitest *)",
+      "Bash(docker compose ps)",
+      "Bash(docker compose up -d)",
+      "Bash(docker exec core_postgres psql *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "mcp__supabase__list_tables",
+      "mcp__supabase__list_extensions",
+      "mcp__supabase__list_migrations",
+      "mcp__supabase__get_logs",
+      "mcp__supabase__get_advisors",
+      "mcp__supabase__search_docs"
+    ],
+    "deny": [
+      "mcp__supabase__apply_migration",
+      "Read(./backend/.env)",
+      "Read(./frontend/.env.local)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ruff_on_edit.sh",
+            "timeout": 30,
+            "statusMessage": "ruff"
+          }
+        ]
+      }
+    ]
+  }
+}
