@@ -18,6 +18,10 @@ WorkloadWindows = tuple[int, int, int]
 
 # Only if there is no observed duration for the service type.
 FALLBACK_SERVICE_DURATION_MIN = 45.0
+# Assignments that ended this long before the simulation clock are discarded so the
+# session does not grow forever. Requests created further in the past than this no
+# longer see those occupations.
+ASSIGNMENT_RETENTION = timedelta(hours=24)
 
 
 def get_or_create_simulation_session(db: Session) -> SimulationSession:
@@ -144,6 +148,17 @@ def advance_sim_clock(db: Session, to_dt: datetime) -> SimulationSession:
     return sim
 
 
+def _prune_finished(assignments: dict, clock: datetime) -> dict:
+    cutoff = (clock - ASSIGNMENT_RETENTION).isoformat()
+    pruned: dict[str, list[dict]] = {}
+    for unit_id, entries in assignments.items():
+        unit_entries = [entries] if isinstance(entries, dict) else entries
+        kept = [e for e in unit_entries if e.get("busy_until", "") >= cutoff]
+        if kept:
+            pruned[unit_id] = kept
+    return pruned
+
+
 def mark_unit_assigned_in_simulation(
     db: Session,
     unit_id: str,
@@ -165,9 +180,10 @@ def mark_unit_assigned_in_simulation(
         }
     )
     assignments[unit_id] = unit_entries
-    sim.active_assignments_json = assignments  # reassign so SQLAlchemy detects the change
     if start_dt > sim.current_sim_datetime:
         sim.current_sim_datetime = start_dt
+    # Reassign (not mutate) so SQLAlchemy detects the JSONB change.
+    sim.active_assignments_json = _prune_finished(assignments, sim.current_sim_datetime)
     sim.updated_at = utcnow()
     db.add(sim)
     return sim

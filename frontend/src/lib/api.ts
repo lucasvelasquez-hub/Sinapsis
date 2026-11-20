@@ -21,7 +21,9 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     readonly code: string,
-    message: string
+    message: string,
+    /** Identificador de la petición en los logs del backend (para soporte). */
+    readonly requestId: string | null = null
   ) {
     super(message);
     this.name = "ApiError";
@@ -47,7 +49,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
     throw new ApiError(
       res.status,
       body?.error?.code ?? "HTTP_ERROR",
-      body?.error?.message ?? `HTTP ${res.status} on ${path}`
+      body?.error?.message ?? `HTTP ${res.status} on ${path}`,
+      body?.error?.request_id ?? res.headers.get("X-Request-ID")
     );
   }
   return res.json() as Promise<T>;

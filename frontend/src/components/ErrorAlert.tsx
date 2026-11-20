@@ -1,5 +1,6 @@
 import { AlertOctagon, RotateCw } from "lucide-react";
 
+import { ApiError } from "@/lib/api";
 import { describeApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
@@ -14,6 +15,7 @@ export function ErrorAlert({
 }) {
   if (!error) return null;
   const { title, message, retryable } = describeApiError(error);
+  const requestId = error instanceof ApiError ? error.requestId : null;
 
   return (
     <div
@@ -27,6 +29,9 @@ export function ErrorAlert({
       <div className="min-w-0 flex-1">
         <p className="font-semibold">{title}</p>
         <p className="text-rose-200/80">{message}</p>
+        {requestId && (
+          <p className="mt-1 font-mono text-[10px] text-rose-300/60">Ref. {requestId}</p>
+        )}
         {retryable && onRetry && (
           <button
             type="button"
