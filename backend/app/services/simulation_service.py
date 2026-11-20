@@ -42,6 +42,19 @@ def get_or_create_simulation_session(db: Session) -> SimulationSession:
     return session
 
 
+def reset_simulation_session(db: Session, clock: datetime) -> SimulationSession:
+    """Start the simulation over after (re)loading a dataset: clock at `clock`, no assignments.
+
+    Without this a re-ingestion keeps the previous dataset's clock and occupations.
+    """
+    sim = get_or_create_simulation_session(db)
+    sim.current_sim_datetime = clock
+    sim.active_assignments_json = {}
+    sim.updated_at = utcnow()
+    db.flush()
+    return sim
+
+
 def get_units_busy_until(
     db: Session,
     unit_ids: Collection[str],

@@ -13,9 +13,10 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import SessionLocal  # noqa: E402
-from app.models.core import ScoringConfig, SimulationSession  # noqa: E402
+from app.models.core import ScoringConfig  # noqa: E402
 from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit  # noqa: E402
 from app.services.feature_service import compute_chronological_features  # noqa: E402
+from app.services.simulation_service import reset_simulation_session  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from validate_dataset import load_services, read_csv, validate  # noqa: E402
@@ -113,18 +114,10 @@ def main() -> None:
                 )
             )
 
-        # Default Simulation Session positioned at the latest historical request timestamp
+        # La simulación arranca de nuevo en la última solicitud histórica del dataset cargado:
+        # el reloj y las asignaciones simuladas de un dataset anterior no tienen sentido aquí.
         latest_dt = services_df["request_datetime"].max().to_pydatetime()
-        if db.get(SimulationSession, "default") is None:
-            db.add(
-                SimulationSession(
-                    session_id="default",
-                    current_sim_datetime=latest_dt,
-                    active_assignments_json={},
-                    created_at=now_utc,
-                    updated_at=now_utc,
-                )
-            )
+        reset_simulation_session(db, latest_dt)
 
         db.commit()
 
