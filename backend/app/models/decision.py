@@ -97,6 +97,8 @@ class DispatchDecision(Base):
     recommendation_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Who decided (identifier until real authentication exists).
+    dispatcher_id: Mapped[str] = mapped_column(String(64), nullable=False)
     # Exclusion reasons of the assigned unit when the dispatcher overrode eligibility.
     eligibility_override: Mapped[list] = mapped_column(
         JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb")

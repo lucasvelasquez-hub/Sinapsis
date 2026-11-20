@@ -157,6 +157,18 @@ class DecisionCreate(BaseModel):
     )
     accepted: bool
     rejection_reason: str | None = None
+    dispatcher_id: str = Field(
+        ...,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[\w.@-]+$",
+        description="Identificador del despachador que decide (sin autenticación aún).",
+    )
+
+    @field_validator("dispatcher_id", mode="before")
+    @classmethod
+    def _strip_dispatcher(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
 
 
 class DecisionOut(ORMModel):
@@ -168,6 +180,7 @@ class DecisionOut(ORMModel):
     recommendation_score: float | None
     accepted: bool
     rejection_reason: str | None
+    dispatcher_id: str
     eligibility_override: list[str] = Field(default_factory=list)
     decision_datetime: datetime
 

@@ -16,6 +16,9 @@ from app.models.raw import RawService
 
 WorkloadWindows = tuple[int, int, int]
 
+# Only if there is no observed duration for the service type.
+FALLBACK_SERVICE_DURATION_MIN = 45.0
+
 
 def get_or_create_simulation_session(db: Session) -> SimulationSession:
     """Return the active simulation session ('default'), creating it if missing."""
@@ -118,6 +121,27 @@ def _unit_assignment_windows(
             )
         )
     return windows
+
+
+def historical_median_duration_min(db: Session, service_type: str) -> float:
+    """Median observed service duration for the type (CALCULADO from OBSERVADO data)."""
+    median = db.execute(
+        select(func.percentile_cont(0.5).within_group(RawService.service_duration_min)).where(
+            RawService.service_type == service_type,
+            RawService.is_synthetic.is_(False),
+            RawService.service_duration_min.is_not(None),
+        )
+    ).scalar_one_or_none()
+    return float(median) if median is not None else FALLBACK_SERVICE_DURATION_MIN
+
+
+def advance_sim_clock(db: Session, to_dt: datetime) -> SimulationSession:
+    """Move the simulation clock forward to to_dt; never backwards."""
+    sim = get_or_create_simulation_session(db)
+    if to_dt > sim.current_sim_datetime:
+        sim.current_sim_datetime = to_dt
+        sim.updated_at = utcnow()
+    return sim
 
 
 def mark_unit_assigned_in_simulation(

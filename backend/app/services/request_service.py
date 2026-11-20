@@ -17,7 +17,7 @@ from app.schemas.dispatch import (
     SimulateRequestCreate,
 )
 from app.services.audit_service import record_audit_event
-from app.services.simulation_service import get_or_create_simulation_session
+from app.services.simulation_service import advance_sim_clock, get_or_create_simulation_session
 
 # Used only if response_targets lacks the urgency level.
 DEFAULT_TARGET_MIN = 30
@@ -108,6 +108,7 @@ def get_request_detail(db: Session, service_id: str) -> RequestDetail:
 def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> RequestDetail:
     sim = get_or_create_simulation_session(db)
     req_dt = payload.request_datetime or (sim.current_sim_datetime + SYNTHETIC_DEFAULT_OFFSET)
+    advance_sim_clock(db, req_dt)  # a new request moves simulated time forward
 
     count_synth = db.execute(
         select(func.count()).select_from(RawService).where(RawService.is_synthetic.is_(True))
