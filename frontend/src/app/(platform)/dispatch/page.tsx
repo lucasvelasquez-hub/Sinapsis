@@ -12,12 +12,14 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { ErrorAlert } from "@/components/ErrorAlert";
+import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
+import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import { ApiError, coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDispatchStore } from "@/stores/dispatchStore";
+import { normalizeDispatcherId, useDispatcherStore } from "@/stores/dispatcherStore";
 
 const URGENCY_BADGE: Record<string, string> = {
   CRITICAL: "border-rose-500/50 bg-rose-500/15 text-rose-300",
@@ -42,6 +44,8 @@ export default function DispatchCenterPage() {
     setZoneFilter,
     setActiveRecommendation,
   } = useDispatchStore();
+  // Toda decisión queda firmada por quien la toma (invariante: decisión humana registrada).
+  const dispatcherId = normalizeDispatcherId(useDispatcherStore((s) => s.dispatcherId));
 
   const requestsQuery = useQuery({
     queryKey: ["requests", urgencyFilter, zoneFilter],
@@ -127,14 +131,17 @@ export default function DispatchCenterPage() {
             Flujo: Solicitud → Contextualización → Elegibilidad → Predicción → MCDM → Decisión Humana
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setModalOpen(true)}
-          className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500"
-        >
-          <Plus className="h-4 w-4" />
-          Nueva Solicitud Sintética
-        </button>
+        <div className="flex items-end gap-4">
+          <DispatcherField />
+          <button
+            type="button"
+            onClick={() => setModalOpen(true)}
+            className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500"
+          >
+            <Plus className="h-4 w-4" />
+            Nueva Solicitud Sintética
+          </button>
+        </div>
       </div>
 
       {/* Three-Zone Layout */}
@@ -179,11 +186,7 @@ export default function DispatchCenterPage() {
             {requestsQuery.isLoading && (
               <div className="p-4 text-xs text-slate-400">Cargando solicitudes...</div>
             )}
-            <ErrorAlert
-              className="m-3"
-              error={requestsQuery.error}
-              onRetry={() => requestsQuery.refetch()}
-            />
+            <QueryErrorAlert className="m-3" queries={[requestsQuery]} />
             {requestsQuery.data?.map((req) => {
               const selected = req.service_id === selectedServiceId;
               return (
@@ -240,7 +243,7 @@ export default function DispatchCenterPage() {
 
         {/* CENTER PANEL: Contextualization & Eligibility */}
         <section className="col-span-4 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
-          <ErrorAlert error={detailQuery.error} onRetry={() => detailQuery.refetch()} />
+          <QueryErrorAlert queries={[detailQuery]} />
           {!detail ? (
             <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-xs text-slate-400">
               Selecciona una solicitud de la cola para inspeccionar su contexto.
@@ -314,11 +317,7 @@ export default function DispatchCenterPage() {
                   <ProvenanceBadge type="SIMULADO" />
                 </div>
 
-                <ErrorAlert
-                  className="mb-3"
-                  error={eligibilityQuery.error}
-                  onRetry={() => eligibilityQuery.refetch()}
-                />
+                <QueryErrorAlert className="mb-3" queries={[eligibilityQuery]} />
                 {eligibility && (
                   <>
                     <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
@@ -389,6 +388,11 @@ export default function DispatchCenterPage() {
               error={evalMutation.error}
               onRetry={() => selectedServiceId && evalMutation.mutate(selectedServiceId)}
             />
+            {activeRecommendation?.status === "GENERATED" && !dispatcherId && (
+              <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 p-2.5 text-xs text-amber-200">
+                Indica tu identificador de despachador (arriba) para poder registrar la decisión.
+              </div>
+            )}
 
             {!activeRecommendation ? (
               <div className="rounded border border-dashed border-slate-700 p-6 text-center text-xs text-slate-400">
@@ -483,9 +487,12 @@ export default function DispatchCenterPage() {
                     <div className="mt-3 flex justify-end">
                       <button
                         type="button"
-                        disabled={decisionMutation.isPending}
+                        disabled={decisionMutation.isPending || !dispatcherId}
+                        title={dispatcherId ? undefined : "Indica tu identificador de despachador"}
                         onClick={() =>
+                          dispatcherId &&
                           decisionMutation.mutate({
+                            dispatcher_id: dispatcherId,
                             service_id: activeRecommendation.service_id,
                             recommendation_id: activeRecommendation.recommendation_id,
                             recommended_unit_id:
@@ -543,9 +550,13 @@ export default function DispatchCenterPage() {
                         </button>
                         <button
                           type="button"
-                          disabled={!rejectReason.trim() || decisionMutation.isPending}
+                          disabled={
+                            !rejectReason.trim() || decisionMutation.isPending || !dispatcherId
+                          }
                           onClick={() =>
+                            dispatcherId &&
                             decisionMutation.mutate({
+                              dispatcher_id: dispatcherId,
                               service_id: activeRecommendation.service_id,
                               recommendation_id: activeRecommendation.recommendation_id,
                               recommended_unit_id:
@@ -606,6 +617,9 @@ export default function DispatchCenterPage() {
                   <span className="font-mono text-slate-200">{d.service_id}</span>
                   <span className="font-mono text-cyan-300">
                     {d.assigned_unit_id ?? "RECHAZADA"}
+                  </span>
+                  <span className="font-mono text-slate-400" title="Despachador">
+                    {d.dispatcher_id}
                   </span>
                   <span
                     className={

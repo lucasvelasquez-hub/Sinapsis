@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { QueryErrorAlert } from "@/components/ErrorAlert";
 import { EChartWrapper } from "@/components/EChartWrapper";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { coreApi } from "@/lib/api";
@@ -25,6 +26,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
+      <QueryErrorAlert queries={[overviewQuery, demandQuery, decisionsQuery]} />
       <div>
         <h1 className="text-xl font-bold tracking-tight text-white">
           Operational Dashboard

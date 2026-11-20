@@ -102,6 +102,7 @@ export const coreApi = {
     assigned_unit_id?: string | null;
     accepted: boolean;
     rejection_reason?: string | null;
+    dispatcher_id: string;
   }) =>
     apiFetch<DecisionOut>("/decisions", {
       method: "POST",

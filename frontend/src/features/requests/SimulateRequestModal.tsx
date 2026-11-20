@@ -6,6 +6,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { X } from "lucide-react";
 
+import { ErrorAlert } from "@/components/ErrorAlert";
 import { coreApi } from "@/lib/api";
 import { useDispatchStore } from "@/stores/dispatchStore";
 
@@ -152,6 +153,11 @@ export function SimulateRequestModal({
               {mutation.isPending ? "Creando..." : "Crear Solicitud"}
             </button>
           </div>
+          <ErrorAlert
+            className="mt-3"
+            error={mutation.error}
+            onRetry={() => mutation.variables && mutation.mutate(mutation.variables)}
+          />
         </form>
       </div>
     </div>

@@ -2,6 +2,7 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { QueryErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ export default function FleetManagementPage() {
 
   return (
     <div className="space-y-6">
+      <QueryErrorAlert queries={[fleetQuery]} />
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-white">

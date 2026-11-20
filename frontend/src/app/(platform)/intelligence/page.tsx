@@ -3,6 +3,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 
+import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { EChartWrapper } from "@/components/EChartWrapper";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { coreApi } from "@/lib/api";
@@ -40,6 +41,7 @@ export default function IntelligenceCenterPage() {
 
   return (
     <div className="space-y-6">
+      <QueryErrorAlert queries={[configQuery, overviewQuery]} />
       <div>
         <h1 className="text-xl font-bold tracking-tight text-white">
           Intelligence Center
@@ -92,6 +94,11 @@ export default function IntelligenceCenterPage() {
                 {updateMutation.isPending ? "Guardando..." : "Guardar Ponderación"}
               </button>
             </div>
+            <ErrorAlert
+              className="mt-3"
+              error={updateMutation.error}
+              onRetry={() => updateMutation.mutate(weightTime)}
+            />
           </div>
 
           <div className="rounded border border-slate-800 bg-slate-950/40 p-4 opacity-60">

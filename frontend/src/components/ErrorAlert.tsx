@@ -41,3 +41,39 @@ export function ErrorAlert({
     </div>
   );
 }
+
+interface RetryableQuery {
+  error: unknown;
+  /** Error del último intento mientras React Query sigue reintentando. */
+  failureReason?: unknown;
+  refetch: () => unknown;
+}
+
+/**
+ * Error a mostrar de una consulta. En TanStack Query v5 una consulta que nunca cargó
+ * datos vuelve a `pending` (error = null) en cada nuevo intento; `failureReason`
+ * conserva el fallo y evita que el aviso parpadee o tarde hasta agotar los reintentos.
+ */
+export function queryError(q: { error: unknown; failureReason?: unknown }): unknown {
+  return q.error ?? q.failureReason ?? null;
+}
+
+/** Un único aviso para varias consultas de una página; reintenta solo las que fallaron. */
+export function QueryErrorAlert({
+  queries,
+  className,
+}: {
+  queries: RetryableQuery[];
+  className?: string;
+}) {
+  const failing = queries.filter((q) => queryError(q));
+  if (failing.length === 0) return null;
+
+  return (
+    <ErrorAlert
+      className={className}
+      error={queryError(failing[0])}
+      onRetry={() => failing.forEach((q) => void q.refetch())}
+    />
+  );
+}

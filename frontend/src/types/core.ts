@@ -119,6 +119,8 @@ export interface DecisionOut {
   recommendation_score: number | null;
   accepted: boolean;
   rejection_reason: string | null;
+  /** Identificador del despachador que registró la decisión ("SIN_REGISTRO" en las antiguas). */
+  dispatcher_id: string;
   /** Motivos de exclusión de la unidad asignada si el despachador anuló la elegibilidad. */
   eligibility_override: string[];
   decision_datetime: string;
