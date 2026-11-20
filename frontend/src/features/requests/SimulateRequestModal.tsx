@@ -2,23 +2,25 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMemo } from "react";
 import { useForm } from "react-hook-form";
-import { z } from "zod";
 import { X } from "lucide-react";
 
 import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { urgencyLabel, useCatalog } from "@/features/catalog/useCatalog";
 import { coreApi } from "@/lib/api";
 import { useDispatchStore } from "@/stores/dispatchStore";
+import type { Catalog } from "@/types/core";
 
-// Los valores salen del catálogo (selects); el backend vuelve a validarlos contra la DB.
-const schema = z.object({
-  urgency_level: z.string().min(1, "Selecciona una urgencia"),
-  service_type: z.string().min(1, "Selecciona un tipo de servicio"),
-  zone_id: z.string().min(1, "Selecciona una zona"),
-});
+import { buildSimulateSchema, type SimulateFormValues as FormValues } from "./simulateSchema";
 
-type FormValues = z.infer<typeof schema>;
+const EMPTY_CATALOG: Catalog = {
+  urgencies: [],
+  service_types: [],
+  zones: [],
+  unit_types: [],
+  shifts: [],
+};
 
 export function SimulateRequestModal({
   open,
@@ -31,6 +33,8 @@ export function SimulateRequestModal({
   const setSelectedServiceId = useDispatchStore((s) => s.setSelectedServiceId);
   const catalogQuery = useCatalog();
   const catalog = catalogQuery.data;
+  // Sin catálogo nada es válido (y el botón está desactivado).
+  const schema = useMemo(() => buildSimulateSchema(catalog ?? EMPTY_CATALOG), [catalog]);
 
   const {
     register,
