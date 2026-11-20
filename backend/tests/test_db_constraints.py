@@ -12,8 +12,8 @@ def _pending_service_id(db: Session) -> str:
     db.execute(
         text(
             "INSERT INTO raw.services (service_id, request_datetime, urgency_level, service_type,"
-            " zone_id, status, is_synthetic) VALUES ('T-CONSTR', '2031-01-01 10:00', 'HIGH',"
-            " 'MEDICAL_URGENT', 'ZONE-01', 'PENDING', true)"
+            " zone_id, status, is_synthetic) VALUES ('T-CONSTR', '2031-01-01 10:00', 'ALTA',"
+            " 'EMERGENCIA_MEDICA', 'COMUNA_01', 'PENDING', true)"
         )
     )
     return "T-CONSTR"

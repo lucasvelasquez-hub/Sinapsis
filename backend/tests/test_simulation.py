@@ -69,9 +69,9 @@ def test_simulate_request_rejects_timezone_aware_datetime(client: TestClient) ->
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "HIGH",
-            "service_type": "MEDICAL_URGENT",
-            "zone_id": "ZONE-02",
+            "urgency_level": "ALTA",
+            "service_type": "EMERGENCIA_MEDICA",
+            "zone_id": "COMUNA_02",
             "request_datetime": "2026-10-30T10:00:00-05:00",
         },
     )
@@ -83,9 +83,9 @@ def _simulate(client: TestClient, **extra: str) -> dict:
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "HIGH",
-            "service_type": "MEDICAL_URGENT",
-            "zone_id": "ZONE-02",
+            "urgency_level": "ALTA",
+            "service_type": "EMERGENCIA_MEDICA",
+            "zone_id": "COMUNA_02",
             **extra,
         },
     )

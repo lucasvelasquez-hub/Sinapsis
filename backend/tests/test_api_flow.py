@@ -9,7 +9,7 @@ def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
 
     dem = client.get("/api/v1/analytics/demand")
     assert dem.status_code == 200
-    assert len(dem.json()["by_zone"]) == 8
+    assert len(dem.json()["by_zone"]) == 16
 
     # 2. Fleet units
     fleet = client.get("/api/v1/fleet/units")
@@ -20,9 +20,9 @@ def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
     sim_resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "CRITICAL",
-            "service_type": "MEDICAL_CRITICAL",
-            "zone_id": "ZONE-01",
+            "urgency_level": "CRITICA",
+            "service_type": "EMERGENCIA_MEDICA",
+            "zone_id": "COMUNA_01",
             "request_datetime": "2026-10-30T10:00:00",
         },
     )
@@ -77,9 +77,9 @@ def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
     sim_resp_2 = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "HIGH",
-            "service_type": "MEDICAL_CRITICAL",
-            "zone_id": "ZONE-01",
+            "urgency_level": "ALTA",
+            "service_type": "EMERGENCIA_MEDICA",
+            "zone_id": "COMUNA_01",
             "request_datetime": "2026-10-30T10:10:00",
         },
     )

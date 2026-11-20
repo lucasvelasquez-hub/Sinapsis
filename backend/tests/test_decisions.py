@@ -20,9 +20,9 @@ def _new_request(client: TestClient, when: str = "2026-10-30T10:00:00") -> str:
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "CRITICAL",
-            "service_type": "MEDICAL_CRITICAL",
-            "zone_id": "ZONE-01",
+            "urgency_level": "CRITICA",
+            "service_type": "EMERGENCIA_MEDICA",
+            "zone_id": "COMUNA_01",
             "request_datetime": when,
         },
     )
@@ -172,18 +172,19 @@ def test_dispatch_does_not_write_simulated_values_into_raw(
     srv = db.get(RawService, recommended["service_id"])
     db.refresh(srv)
     assert srv.status == "DISPATCHED"
-    assert srv.completion_datetime is None
+    assert srv.closure_datetime is None
     assert srv.service_duration_min is None
+    assert srv.occupation_min is None
 
 
-def test_dispatch_occupies_unit_for_historical_median_duration(
+def test_dispatch_occupies_unit_for_historical_median_occupation(
     client: TestClient, db: Session, recommended: dict[str, Any]
 ) -> None:
     median = db.execute(
         text(
-            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY service_duration_min)"
-            " FROM raw.services WHERE service_type = 'MEDICAL_CRITICAL'"
-            " AND NOT is_synthetic AND service_duration_min IS NOT NULL"
+            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY occupation_min)"
+            " FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA'"
+            " AND NOT is_synthetic AND occupation_min IS NOT NULL"
         )
     ).scalar_one()
     unit_id = recommended["candidates"][0]["unit_id"]
