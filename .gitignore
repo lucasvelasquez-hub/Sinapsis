@@ -35,3 +35,6 @@ frontend/.env.local
 
 # Claude Code (local, no versionar)
 .claude/settings.local.json
+
+# Espacio de trabajo de planes (superpowers)
+.superpowers/
