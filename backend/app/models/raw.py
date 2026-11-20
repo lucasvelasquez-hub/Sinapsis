@@ -7,8 +7,10 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -28,6 +30,12 @@ class RawService(Base):
         ),
         CheckConstraint(
             "urgency_level IN ('CRITICA', 'ALTA', 'MEDIA', 'BAJA')", name="ck_services_urgency"
+        ),
+        # Ventanas de carga 4/8/12h por unidad (simulation_service.get_units_workload_windows).
+        Index(
+            "ix_raw_services_unit_assigned_at",
+            "assigned_unit_id",
+            text("coalesce(assignment_datetime, request_datetime)"),
         ),
         {"schema": "raw"},
     )
