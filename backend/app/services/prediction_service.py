@@ -17,7 +17,8 @@ BASELINE_LABEL = "HISTORICAL_CONTEXTUAL_BASELINE"
 ML_LABEL = "ML_CONTEXTUAL_PREDICTION"
 PREDICTION_BOUNDS_MIN = (2.0, 120.0)
 # Only used when no trained artifact exists (fresh checkout before train_models.py).
-FALLBACK_BY_URGENCY = {"CRITICAL": 8.0, "HIGH": 14.0, "MEDIUM": 25.0, "LOW": 42.0}
+# Values = the dataset response targets (raw.response_targets), the only reference available.
+FALLBACK_BY_URGENCY = {"CRITICA": 8.0, "ALTA": 15.0, "MEDIA": 30.0, "BAJA": 60.0}
 FALLBACK_DEFAULT = 24.0
 
 Prediction = tuple[float, str]  # (minutes, estimation_type)
@@ -50,7 +51,7 @@ def predict_expected_responses(
                 "service_type": service.service_type,
                 "zone_id": service.zone_id,
                 "unit_type": u.unit_type,
-                "base_zone_id": u.base_zone_id,
+                "base_id": u.base_id,
                 "shift": u.shift,
                 "capacity": u.capacity,
             }

@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 
 from app.api.v1.analytics import router as analytics_router
+from app.api.v1.catalog import router as catalog_router
 from app.api.v1.config import router as config_router
 from app.api.v1.decisions import router as decisions_router
 from app.api.v1.fleet import router as fleet_router
@@ -16,3 +17,4 @@ api_router.include_router(fleet_router)
 api_router.include_router(analytics_router)
 api_router.include_router(decisions_router)
 api_router.include_router(config_router)
+api_router.include_router(catalog_router)

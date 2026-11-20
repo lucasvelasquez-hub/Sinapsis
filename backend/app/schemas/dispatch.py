@@ -1,18 +1,9 @@
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from app.domain.enums import ExclusionCode, RecommendationStatus, ServiceStatus
-
-UrgencyLevel = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
-ServiceType = Literal[
-    "MEDICAL_CRITICAL",
-    "TRAUMA_RESCUE",
-    "MEDICAL_URGENT",
-    "TRANSFER_ASSISTED",
-    "CRISIS_INTERVENTION",
-]
+from app.domain.enums import ExclusionCode, RecommendationStatus, ServiceStatus, UrgencyLevel
 
 
 class ORMModel(BaseModel):
@@ -25,7 +16,7 @@ class RequestSummary(ORMModel):
     service_id: str
     request_datetime: datetime
     urgency_level: UrgencyLevel
-    service_type: ServiceType
+    service_type: str  # vocabulario del dataset: GET /api/v1/catalog
     zone_id: str
     status: ServiceStatus
     is_synthetic: bool
@@ -39,8 +30,6 @@ class RequestContext(BaseModel):
     is_weekend: bool
     is_peak_hour: bool
     target_response_min: int
-    max_acceptable_min: int
-    sla_label: str
     zone_demand_4h: int
     zone_demand_8h: int
     zone_demand_12h: int
@@ -48,15 +37,18 @@ class RequestContext(BaseModel):
 
 
 class RequestDetail(RequestSummary):
+    assignment_datetime: datetime | None = None
+    arrival_datetime: datetime | None = None
+    closure_datetime: datetime | None = None
     service_duration_min: float | None = None
-    completion_datetime: datetime | None = None
     context: RequestContext
 
 
 class SimulateRequestCreate(BaseModel):
     urgency_level: UrgencyLevel
-    service_type: ServiceType
-    zone_id: str = Field(..., pattern=r"^ZONE-0[1-8]$")
+    # Se validan contra el catálogo del dataset en request_service (422 si no existen).
+    service_type: str = Field(..., min_length=1, max_length=32)
+    zone_id: str = Field(..., min_length=1, max_length=16)
     request_datetime: datetime | None = None
 
     @field_validator("request_datetime")

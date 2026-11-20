@@ -17,11 +17,11 @@ from app.schemas.dispatch import (
     SimulateRequestCreate,
 )
 from app.services.audit_service import record_audit_event
+from app.services.catalog_service import ensure_known_service_values
 from app.services.simulation_service import advance_sim_clock, get_or_create_simulation_session
 
 # Used only if response_targets lacks the urgency level.
 DEFAULT_TARGET_MIN = 30
-DEFAULT_MAX_ACCEPTABLE_MIN = 45
 # Zone demand in the last 4h -> pressure level.
 PRESSURE_THRESHOLDS = ((6, "HIGH"), (3, "MODERATE"))
 SYNTHETIC_DEFAULT_OFFSET = timedelta(minutes=2)
@@ -54,8 +54,6 @@ def _build_request_context(db: Session, srv: RawService) -> RequestContext:
         is_weekend=ctx.is_weekend,
         is_peak_hour=ctx.is_peak_hour,
         target_response_min=target.target_response_min if target else DEFAULT_TARGET_MIN,
-        max_acceptable_min=target.max_acceptable_min if target else DEFAULT_MAX_ACCEPTABLE_MIN,
-        sla_label=target.sla_label if target else srv.urgency_level,
         zone_demand_4h=d4,
         zone_demand_8h=d8,
         zone_demand_12h=d12,
@@ -99,13 +97,16 @@ def get_request_detail(db: Session, service_id: str) -> RequestDetail:
     summary = RequestSummary.model_validate(srv)
     return RequestDetail(
         **summary.model_dump(),
+        assignment_datetime=srv.assignment_datetime,
+        arrival_datetime=srv.arrival_datetime,
+        closure_datetime=srv.closure_datetime,
         service_duration_min=srv.service_duration_min,
-        completion_datetime=srv.completion_datetime,
         context=_build_request_context(db, srv),
     )
 
 
 def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> RequestDetail:
+    ensure_known_service_values(db, payload.service_type, payload.zone_id)
     sim = get_or_create_simulation_session(db)
     req_dt = payload.request_datetime or (sim.current_sim_datetime + SYNTHETIC_DEFAULT_OFFSET)
     advance_sim_clock(db, req_dt)  # a new request moves simulated time forward
