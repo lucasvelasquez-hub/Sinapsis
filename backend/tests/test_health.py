@@ -21,3 +21,14 @@ def test_check_db_connection_logs_failure(monkeypatch, caplog) -> None:
 
     assert database.check_db_connection() is False
     assert any("db down" in (r.exc_text or "") or r.exc_info for r in caplog.records)
+
+
+def test_cors_allows_frontend_dev_ports(client: TestClient) -> None:
+    for origin in ("http://localhost:3000", "http://localhost:3011"):
+        resp = client.options(
+            "/api/v1/requests",
+            headers={"Origin": origin, "Access-Control-Request-Method": "GET"},
+        )
+
+        assert resp.status_code == 200, origin
+        assert resp.headers.get("access-control-allow-origin") == origin

@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://core_user:core_password@localhost:5433/core_db"
     # Alembic: Supabase direct or session-pooler (5432). Falls back to database_url.
     database_url_migrations: str | None = None
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3011"]
 
     model_config = SettingsConfigDict(
         env_file=".env",
