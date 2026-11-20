@@ -64,8 +64,10 @@ npm run build                             # comprobar tipos y build antes de com
 ## Arquitectura
 
 **Backend** (`backend/app/`): `api/v1/*` (routers, prefijo `/api/v1`) → `services/*` (lógica de los
-motores) → `models/*` (ORM). Schemas Pydantic en `schemas/`, config/DB/errores/logging en `core/`,
-entrenamiento y artefacto en `ml/`.
+motores) → `models/*` (ORM). Schemas Pydantic en `schemas/`, config/DB/errores/logging en `core/`.
+Reglas puras compartidas (hora pico, ventanas 4/8/12h, turnos, enums de estado) en `domain/`: no
+duplicarlas en los services. `ml/features.py` es la única construcción de features (entrenamiento y
+predicción); `ml/artifact.py` valida el artefacto con su manifiesto al arrancar.
 
 Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T + w_L·L, pesos en
 `core.scoring_config`) → `prediction_service` → `recommendation_service` (Top 3) →
@@ -89,7 +91,12 @@ Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T +
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
+- **Estado (2026-11-19): el proyecto aún NO tiene los schemas de CORE**; app y tests corren contra
+  Docker local. Desplegar = `alembic upgrade head` con `DATABASE_URL_MIGRATIONS` + ingesta + `get_advisors`.
+  Mientras tanto, verificar columnas contra el Docker local y decirlo explícitamente.
 - MCP en `.mcp.json` (OAuth, limitado al proyecto). Uso: leer esquema, `get_logs`, `get_advisors`, docs.
+  El plugin de Supabase (`mcp__plugin_supabase_supabase__*`) NO está limitado al proyecto: sus tools
+  destructivas están en `deny` de `.claude/settings.json`.
 - Conexión (`backend/.env`, ver `.env.example`):
   - `DATABASE_URL` → pooler en modo transacción (6543). `database.py` desactiva los prepared
     statements (`prepare_threshold=None`) porque el pooler no los soporta: no quitarlo.

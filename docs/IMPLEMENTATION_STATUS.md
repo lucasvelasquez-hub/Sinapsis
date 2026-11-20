@@ -18,7 +18,7 @@
 - [x] Fase 10: Estabilización, Documentación & Demostración final
 
 ## Funcionalidades Terminadas
-- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic (`042b83efd042`, `1c5125447ef6`).
+- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic (`042b83efd042`, `1c5125447ef6`, `faa75e1c0208` override de elegibilidad, `545b0996db2b` FK/CHECK/decisión única).
 - **Dataset & Features**: 10.000 servicios, 30 móviles, 15 reglas, 4 objetivos, 90 días. Feature engineering cronológico sin leakage temporal (`zone_demand_4h/8h/12h`).
 - **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor`. Seleccionado `linear_regression_ridge` (MAE val `9.6445`, test `9.5864`).
 - **Motores de Decisión**:
@@ -28,7 +28,7 @@
   - `decision_service.py` & `simulation_service.py`: Registro de decisiones humanas y actualización de disponibilidad simulada.
 - **API REST (`/api/v1/*`)**: `health`, `requests`, `requests/simulate`, `requests/{id}`, `recommendations/evaluate`, `recommendations/{id}`, `fleet/units`, `fleet/eligibility/{id}`, `analytics/overview`, `analytics/demand`, `decisions`, `config/scoring`.
 - **Frontend Next.js**: 5 pantallas operacionales (`/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`) con Apache ECharts, React Hook Form + Zod, Zustand, TanStack Query y badges de procedencia (`OBSERVADO`, `CALCULADO`, `PREDICHO`, `SIMULADO`).
-- **Tests**: Pytest (`6 passed` incluyendo flujo completo E2E) y Vitest (`1 passed`).
+- **Tests**: Pytest (`45 passed`: flujo E2E, invariantes de decisión, simulación, dominio, restricciones DB, presupuesto de queries, artefacto ML; aislados en transacción) y Vitest (`1 passed`). CI en `.github/workflows/ci.yml`.
 
 ## Decisiones Técnicas y Limitaciones
 - Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
