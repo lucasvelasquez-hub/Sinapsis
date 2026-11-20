@@ -27,14 +27,15 @@ def _insert_decision(db: Session, **cols: object) -> None:
         "assigned_unit_id": None,
         "accepted": False,
         "rejection_reason": "motivo",
+        "dispatcher_id": "desp-test",
         **cols,
     }
     db.execute(
         text(
             "INSERT INTO decision.dispatch_decisions (decision_id, service_id, recommendation_id,"
-            " assigned_unit_id, accepted, rejection_reason, decision_datetime) VALUES"
-            " (:decision_id, :service_id, :recommendation_id, :assigned_unit_id, :accepted,"
-            " :rejection_reason, now())"
+            " assigned_unit_id, accepted, rejection_reason, dispatcher_id, decision_datetime)"
+            " VALUES (:decision_id, :service_id, :recommendation_id, :assigned_unit_id,"
+            " :accepted, :rejection_reason, :dispatcher_id, now())"
         ),
         row,
     )
@@ -67,6 +68,11 @@ def test_accepted_decision_requires_assigned_unit(db: Session) -> None:
 def test_rejection_without_unit_requires_reason(db: Session) -> None:
     _pending_service_id(db)
     _rejected(db, lambda: _insert_decision(db, rejection_reason=None))
+
+
+def test_decision_requires_dispatcher(db: Session) -> None:
+    _pending_service_id(db)
+    _rejected(db, lambda: _insert_decision(db, dispatcher_id=None))
 
 
 def test_one_decision_per_service(db: Session) -> None:

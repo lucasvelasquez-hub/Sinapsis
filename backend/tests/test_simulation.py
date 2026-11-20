@@ -73,3 +73,39 @@ def test_simulate_request_rejects_timezone_aware_datetime(client: TestClient) ->
     )
 
     assert resp.status_code == 422
+
+
+def _simulate(client: TestClient, **extra: str) -> dict:
+    resp = client.post(
+        "/api/v1/requests/simulate",
+        json={
+            "urgency_level": "HIGH",
+            "service_type": "MEDICAL_URGENT",
+            "zone_id": "ZONE-02",
+            **extra,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()
+
+
+def test_synthetic_requests_without_time_advance_sim_clock(client: TestClient, db: Session) -> None:
+    first = datetime.fromisoformat(_simulate(client)["request_datetime"])
+    second = datetime.fromisoformat(_simulate(client)["request_datetime"])
+
+    sim = get_or_create_simulation_session(db)
+    db.refresh(sim)
+    assert second > first
+    assert sim.current_sim_datetime == second
+
+
+def test_synthetic_request_in_past_does_not_rewind_sim_clock(
+    client: TestClient, db: Session
+) -> None:
+    sim = get_or_create_simulation_session(db)
+    before = sim.current_sim_datetime
+
+    _simulate(client, request_datetime="2020-01-01T08:00:00")
+
+    db.refresh(sim)
+    assert sim.current_sim_datetime == before

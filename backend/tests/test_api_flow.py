@@ -67,6 +67,7 @@ def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
             "assigned_unit_id": top["unit_id"],
             "recommendation_score": top["score"],
             "accepted": True,
+            "dispatcher_id": "desp-test",
         },
     )
     assert dec_resp.status_code == 201
