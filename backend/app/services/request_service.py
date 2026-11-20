@@ -107,7 +107,7 @@ def get_request_detail(db: Session, service_id: str) -> RequestDetail:
 
 def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> RequestDetail:
     ensure_known_service_values(db, payload.service_type, payload.zone_id)
-    sim = get_or_create_simulation_session(db)
+    sim = get_or_create_simulation_session(db, for_update=True)  # el reloj se lee y avanza
     req_dt = payload.request_datetime or (sim.current_sim_datetime + SYNTHETIC_DEFAULT_OFFSET)
     advance_sim_clock(db, req_dt)  # a new request moves simulated time forward
 

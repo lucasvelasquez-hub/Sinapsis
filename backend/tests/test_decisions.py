@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select, text
+from sqlalchemy import event, select, text
 from sqlalchemy.orm import Session
 
 from app.models.core import AuditEvent
@@ -199,3 +199,25 @@ def test_dispatch_occupies_unit_from_request_until_median_closure(
     expected = srv.request_datetime + timedelta(minutes=median)
     assert busy is not None
     assert abs((busy - expected).total_seconds()) < 1
+
+
+def test_decision_locks_service_and_simulation_rows(
+    client: TestClient, db: Session, recommended: dict[str, Any]
+) -> None:
+    """Dos despachadores a la vez: la fila del servicio y la de la simulación se bloquean,
+    así el segundo ve el estado ya decidido (409) y no pisa la ocupación del primero."""
+    statements: list[str] = []
+
+    def _capture(_conn, _cursor, statement, *_args):
+        statements.append(statement)
+
+    bind = db.connection()
+    event.listen(bind, "before_cursor_execute", _capture)
+    try:
+        assert _accept_top(client, recommended).status_code == 201
+    finally:
+        event.remove(bind, "before_cursor_execute", _capture)
+
+    locked = [s for s in statements if "FOR UPDATE" in s]
+    assert any("FROM raw.services" in s for s in locked)
+    assert any("FROM core.simulation_sessions" in s for s in locked)

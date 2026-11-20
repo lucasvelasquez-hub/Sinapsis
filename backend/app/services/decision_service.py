@@ -18,8 +18,13 @@ from app.services.simulation_service import (
 
 
 def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOut:
-    """Record human dispatch decision, update service & simulation state, and log audit."""
-    service = db.get(RawService, payload.service_id)
+    """Record human dispatch decision, update service & simulation state, and log audit.
+
+    Locks the service row first (then the simulation session): a concurrent decision on the
+    same service waits and then sees it already decided (409) instead of failing on the
+    unique constraint. Lock order service → session everywhere avoids deadlocks.
+    """
+    service = db.get(RawService, payload.service_id, with_for_update=True, populate_existing=True)
     if service is None:
         raise ResourceNotFoundError("Service request", payload.service_id)
 

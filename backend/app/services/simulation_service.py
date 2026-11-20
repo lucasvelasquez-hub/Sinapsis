@@ -24,9 +24,17 @@ FALLBACK_SERVICE_DURATION_MIN = 45.0
 ASSIGNMENT_RETENTION = timedelta(hours=24)
 
 
-def get_or_create_simulation_session(db: Session) -> SimulationSession:
-    """Return the active simulation session ('default'), creating it if missing."""
-    session = db.get(SimulationSession, "default")
+def get_or_create_simulation_session(db: Session, for_update: bool = False) -> SimulationSession:
+    """Return the active simulation session ('default'), creating it if missing.
+
+    `for_update=True` locks the row until commit: every read-modify-write of the session
+    (clock, assignments) must use it, or two concurrent writers lose one update.
+    """
+    # populate_existing: if the session was already loaded unlocked in this request, the
+    # locked read must refresh it, or the write would be based on stale data.
+    session = db.get(
+        SimulationSession, "default", with_for_update=for_update, populate_existing=for_update
+    )
     if session is None:
         latest = db.execute(select(func.max(RawService.request_datetime))).scalar_one_or_none()
         now_utc = utcnow()
@@ -177,7 +185,7 @@ def historical_median_request_to_closure_min(db: Session, service_type: str) -> 
 
 def advance_sim_clock(db: Session, to_dt: datetime) -> SimulationSession:
     """Move the simulation clock forward to to_dt; never backwards."""
-    sim = get_or_create_simulation_session(db)
+    sim = get_or_create_simulation_session(db, for_update=True)
     if to_dt > sim.current_sim_datetime:
         sim.current_sim_datetime = to_dt
         sim.updated_at = utcnow()
@@ -203,7 +211,7 @@ def mark_unit_assigned_in_simulation(
     duration_min: float,
 ) -> SimulationSession:
     """Update simulation session after human dispatch decision."""
-    sim = get_or_create_simulation_session(db)
+    sim = get_or_create_simulation_session(db, for_update=True)
     assignments = dict(sim.active_assignments_json or {})
     previous = assignments.get(unit_id) or []
     unit_entries = [previous] if isinstance(previous, dict) else list(previous)

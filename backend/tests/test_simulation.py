@@ -199,3 +199,19 @@ def test_resync_simulation_keeps_current_units_and_moves_clock(db: Session) -> N
 
     assert synced.current_sim_datetime == latest
     assert list(synced.active_assignments_json) == ["MOV-001"]
+
+
+def test_locked_session_read_refreshes_stale_object(db: Session) -> None:
+    """Bloquear la fila no basta: hay que releerla, o se escribe encima de datos viejos."""
+    stale = get_or_create_simulation_session(db)
+    db.execute(
+        text(
+            "UPDATE core.simulation_sessions SET active_assignments_json = "
+            "'{\"MOV-009\": []}'::jsonb WHERE session_id = 'default'"
+        )
+    )
+
+    locked = get_or_create_simulation_session(db, for_update=True)
+
+    assert locked is stale
+    assert "MOV-009" in locked.active_assignments_json
