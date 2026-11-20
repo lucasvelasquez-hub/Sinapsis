@@ -56,7 +56,8 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
             Demanda <ProvenanceBadge type="CALCULADO" />
           </dt>
           <dd className="mt-0.5 text-sm tabular-nums text-slate-100">
-            {context.zone_demand_4h} en 4h, {context.zone_demand_12h} en 12h
+            {context.zone_demand_4h} en 4h, {context.zone_demand_8h} en 8h,{" "}
+            {context.zone_demand_12h} en 12h
           </dd>
         </div>
         <div>

@@ -48,3 +48,19 @@ describe("LastDecisionBanner", () => {
     expect(screen.queryByRole("status")).toBeNull();
   });
 });
+
+describe("LastDecisionBanner — fallo", () => {
+  beforeEach(() => useDispatchStore.setState(initial, true));
+
+  it("reports a decision that failed after the dispatcher moved on", () => {
+    useDispatchStore
+      .getState()
+      .setLastDecisionError({ serviceId: "SIM-0003", message: "No se pudo conectar con la API." });
+    render(<LastDecisionBanner />);
+
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toMatch(/no se registró la decisión de SIM-0003/i);
+    expect(alert.textContent).toMatch(/sigue pendiente/i);
+    expect(screen.queryByRole("status")).toBeNull();
+  });
+});

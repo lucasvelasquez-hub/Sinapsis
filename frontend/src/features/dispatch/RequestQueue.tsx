@@ -181,7 +181,7 @@ export function RequestQueue({
                   {req.service_id}
                 </span>
                 <span className="text-xs tabular-nums text-slate-300">
-                  {req.request_datetime.replace("T", " ").slice(11, 16)}
+                  {req.request_datetime.replace("T", " ").slice(5, 16)}
                 </span>
               </div>
               <div className="mt-1 flex items-center justify-between gap-2 text-xs">
@@ -204,7 +204,9 @@ export function RequestQueue({
                       : "text-slate-300"
                   }
                 >
-                  {STATUS_LABEL[req.status] ?? req.status}
+                  {req.is_synthetic
+                    ? `Simulada, ${(STATUS_LABEL[req.status] ?? req.status).toLowerCase()}`
+                    : (STATUS_LABEL[req.status] ?? req.status)}
                 </span>
               </div>
             </button>

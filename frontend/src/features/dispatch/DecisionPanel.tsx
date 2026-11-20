@@ -14,6 +14,7 @@ import { useRef, useState } from "react";
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { ApiError, coreApi } from "@/lib/api";
+import { describeApiError } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 import {
   normalizeDispatcherId,
@@ -66,9 +67,17 @@ export function DecisionPanel({
     mutationFn: async (
       payload: Parameters<typeof coreApi.recordDecision>[0],
     ) => {
-      const decision = await coreApi.recordDecision(payload);
-      useDispatchStore.getState().setLastDecision(decision);
-      return decision;
+      const store = useDispatchStore.getState();
+      try {
+        const decision = await coreApi.recordDecision(payload);
+        store.setLastDecision(decision);
+        return decision;
+      } catch (error) {
+        // Si el despachador ya cambió de solicitud, el panel no está para mostrarlo: va al aviso.
+        const { title, message } = describeApiError(error);
+        store.setLastDecisionError({ serviceId: payload.service_id, message: `${title}. ${message}` });
+        throw error;
+      }
     },
     onSuccess: () => onDecided(),
     onError: (error) => {
@@ -114,6 +123,12 @@ export function DecisionPanel({
   }
 
   const evaluated = Boolean(rec);
+  // El Top 3 se evaluó antes: una candidata que ya no está entre las elegibles actuales
+  // (p. ej. se despachó a otra solicitud) no se puede seleccionar.
+  const eligibleNow = new Set(eligibility?.eligible_units.map((u) => u.unit_id));
+  const unavailable = new Set(
+    eligibility ? (rec?.candidates ?? []).map((c) => c.unit_id).filter((id) => !eligibleNow.has(id)) : []
+  );
   // Los avisos que comparten todas las candidatas (p. ej. "sin GPS") se muestran una vez.
   const commonWarnings = rec?.candidates.length
     ? rec.candidates[0].warnings.filter((w) =>
@@ -130,7 +145,12 @@ export function DecisionPanel({
 
   const confirm = () => {
     if (!rec || !selection || !dispatcherId || submitting.current) return;
+    if (selection.kind === "candidate" && unavailable.has(selection.unitId)) return;
     submitting.current = true;
+    // El aviso de página no debe seguir mostrando la decisión anterior como si fuera esta.
+    const store = useDispatchStore.getState();
+    store.setLastDecision(null);
+    store.setLastDecisionError(null);
     decisionMutation.mutate(
       buildDecisionPayload(rec, selection, reason, dispatcherId),
     );
@@ -190,6 +210,7 @@ export function DecisionPanel({
                   key={cand.unit_id}
                   cand={cand}
                   commonWarnings={commonWarnings}
+                  unavailable={unavailable.has(cand.unit_id)}
                   selected={
                     selection?.kind === "candidate" &&
                     selection.unitId === cand.unit_id
@@ -278,10 +299,7 @@ export function DecisionPanel({
 
       <ErrorAlert
         error={decisionMutation.error}
-        onRetry={() =>
-          decisionMutation.variables &&
-          decisionMutation.mutate(decisionMutation.variables)
-        }
+        onRetry={confirm}
       />
     </div>
   );
@@ -301,11 +319,13 @@ function confirmLabel(
 function CandidateOption({
   cand,
   commonWarnings,
+  unavailable,
   selected,
   onSelect,
 }: {
   cand: RecommendationCandidate;
   commonWarnings: string[];
+  unavailable: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
@@ -316,10 +336,11 @@ function CandidateOption({
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-label={`#${cand.rank} ${cand.unit_id} ${cand.unit_type}${top ? " recomendada" : ""}`}
+      aria-label={`#${cand.rank} ${cand.unit_id} ${cand.unit_type}${top ? " recomendada" : ""}${unavailable ? " ya no disponible" : ""}`}
+      disabled={unavailable}
       onClick={onSelect}
       className={cn(
-        "w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
+        "w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-80",
         selected
           ? "border-cyan-400 bg-cyan-500/10"
           : "border-slate-800 bg-slate-950/70 hover:border-slate-600",
@@ -345,9 +366,14 @@ function CandidateOption({
               <span className="text-xs text-slate-300">
                 {cand.unit_type}, {cand.base_id}
               </span>
-              {top && (
+              {top && !unavailable && (
                 <span className="text-xs font-semibold text-cyan-200">
                   Recomendada
+                </span>
+              )}
+              {unavailable && (
+                <span className="text-xs font-semibold text-rose-200">
+                  Ya no disponible
                 </span>
               )}
             </div>
@@ -359,6 +385,9 @@ function CandidateOption({
                 {cand.expected_response_min} min
               </span>
               <ProvenanceBadge type="PREDICHO" />
+              <span className="truncate text-xs text-slate-400">
+                {cand.estimation_type}
+              </span>
             </div>
           </div>
         </div>

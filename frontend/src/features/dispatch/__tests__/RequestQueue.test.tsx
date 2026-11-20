@@ -96,3 +96,21 @@ describe("RequestQueue", () => {
     expect(useDispatchStore.getState().selectedServiceId).toBeNull();
   });
 });
+
+describe("RequestQueue — procedencia y fecha", () => {
+  beforeEach(() => {
+    useDispatchStore.setState(initial, true);
+    vi.spyOn(coreApi, "getCatalog").mockResolvedValue(CATALOG);
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  it("marks simulated requests and shows the full date", () => {
+    renderQueue([request("SIM-1"), request("SRV-00001", { is_synthetic: false, status: "COMPLETED" })]);
+
+    const sim = screen.getByRole("button", { name: /SIM-1/ });
+    const hist = screen.getByRole("button", { name: /SRV-00001/ });
+    expect(sim.textContent).toMatch(/simulada/i);
+    expect(hist.textContent).not.toMatch(/simulada/i);
+    expect(sim.textContent).toContain("10-29 23:47");
+  });
+});
