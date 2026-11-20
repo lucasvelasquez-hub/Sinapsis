@@ -37,13 +37,11 @@ export default function DispatchCenterPage() {
 
   const {
     selectedServiceId,
-    urgencyFilter,
-    zoneFilter,
-    activeRecommendation,
+    filters,
+    recommendations,
     setSelectedServiceId,
-    setUrgencyFilter,
-    setZoneFilter,
-    setActiveRecommendation,
+    setFilter,
+    storeRecommendation,
   } = useDispatchStore();
   // Toda decisión queda firmada por quien la toma (invariante: decisión humana registrada).
   const dispatcherId = normalizeDispatcherId(useDispatcherStore((s) => s.dispatcherId));
@@ -51,11 +49,12 @@ export default function DispatchCenterPage() {
   const catalogQuery = useCatalog();
 
   const requestsQuery = useQuery({
-    queryKey: ["requests", urgencyFilter, zoneFilter],
+    queryKey: ["requests", filters],
     queryFn: () =>
       coreApi.listRequests({
-        urgency_level: urgencyFilter || undefined,
-        zone_id: zoneFilter || undefined,
+        status: filters.status || undefined,
+        urgency_level: filters.urgency || undefined,
+        zone_id: filters.zone || undefined,
         limit: 40,
       }),
   });
@@ -86,7 +85,7 @@ export default function DispatchCenterPage() {
   const evalMutation = useMutation({
     mutationFn: (serviceId: string) => coreApi.evaluateRecommendations(serviceId),
     onSuccess: (rec) => {
-      setActiveRecommendation(rec);
+      storeRecommendation(rec);
     },
   });
 
@@ -119,6 +118,7 @@ export default function DispatchCenterPage() {
     setSelectedServiceId(serviceId);
   };
 
+  const activeRecommendation = selectedServiceId ? recommendations[selectedServiceId] : undefined;
   const detail = detailQuery.data;
   const eligibility = eligibilityQuery.data;
 
@@ -160,8 +160,8 @@ export default function DispatchCenterPage() {
             </div>
             <div className="grid grid-cols-2 gap-2">
               <select
-                value={urgencyFilter}
-                onChange={(e) => setUrgencyFilter(e.target.value)}
+                value={filters.urgency}
+                onChange={(e) => setFilter("urgency", e.target.value)}
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
               >
                 <option value="">Todas Urg.</option>
@@ -172,8 +172,8 @@ export default function DispatchCenterPage() {
                 ))}
               </select>
               <select
-                value={zoneFilter}
-                onChange={(e) => setZoneFilter(e.target.value)}
+                value={filters.zone}
+                onChange={(e) => setFilter("zone", e.target.value)}
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
               >
                 <option value="">Todas Zonas</option>
