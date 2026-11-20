@@ -11,8 +11,10 @@ Arquitectura (7 nodos): `docs/architecture/overview.md`.
 2. **Esquema DB**: antes de escribir o editar una query, modelo o migración que nombre columnas,
    verificar los nombres reales contra Supabase vía MCP (`list_tables` / `execute_sql`), no de memoria.
    Ver `.claude/rules/supabase.md`.
-3. **Solo Alembic cambia el esquema**: NUNCA `apply_migration` del MCP ni el SQL editor del dashboard
-   para DDL (desincroniza `alembic_version`). Tras cada migración: `get_advisors` (security).
+3. **Solo Alembic define el esquema**: todo DDL nace en una revisión de Alembic. En Supabase se aplica
+   ejecutando por MCP (`execute_sql`) el SQL que genera `alembic upgrade <rev> --sql`, que incluye
+   `core.alembic_version`. NUNCA `apply_migration` ni DDL escrito a mano. Ver `.claude/rules/supabase.md`.
+   Tras cada migración: `get_advisors` (security).
 4. **Commits**: ESPAÑOL, Conventional Commits `<tipo>(<alcance>): <desc>` — máx. 50 caracteres,
    imperativo, sin emojis. Usar `/commit`.
 5. **Python con uv**: desde `backend/`, siempre `uv run …` (nunca `pip` ni `python` del sistema).
@@ -96,9 +98,9 @@ Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T +
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
-- **Estado (2026-11-19): el proyecto aún NO tiene los schemas de CORE**; app y tests corren contra
-  Docker local. Desplegar = `alembic upgrade head` con `DATABASE_URL_MIGRATIONS` + ingesta + `get_advisors`.
-  Mientras tanto, verificar columnas contra el Docker local y decirlo explícitamente.
+- **Estado (2026-11-19): esquema aplicado en Supabase (revisión `31e853de3d90`), SIN datos** (no se ha
+  ingerido el dataset). La app y los tests siguen corriendo contra Docker local (`DATABASE_URL`).
+- `alembic_version` vive en `core` (no en `public`, que la Data API expone a `anon`).
 - MCP en `.mcp.json` (OAuth, limitado al proyecto). Uso: leer esquema, `get_logs`, `get_advisors`, docs.
   El plugin de Supabase (`mcp__plugin_supabase_supabase__*`) NO está limitado al proyecto: sus tools
   destructivas están en `deny` de `.claude/settings.json`.

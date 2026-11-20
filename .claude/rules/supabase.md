@@ -24,10 +24,15 @@ paths:
 
 - Todo DDL va en una revisión de Alembic (`uv run alembic revision --autogenerate -m "..."`), revisada a
   mano antes de aplicarla: autogenerate no detecta todo (renames, cambios de tipo con datos, constraints).
-- PROHIBIDO para DDL: `apply_migration` del MCP, el SQL editor del dashboard o `execute_sql` con
-  `ALTER/CREATE/DROP`. Desincronizan `alembic_version` y rompen la siguiente migración.
-- Orden: probar `upgrade head` y `downgrade -1` en Docker local → aplicar en Supabase con
-  `DATABASE_URL_MIGRATIONS` → `get_advisors` (type `security`) y resolver lo que salga.
+- PROHIBIDO para DDL: `apply_migration` del MCP, el SQL editor del dashboard o DDL escrito a mano en
+  `execute_sql`. Desincronizan `core.alembic_version` y rompen la siguiente migración.
+- Orden: probar `upgrade head` y `downgrade -1` en Docker local → generar el SQL de las revisiones
+  pendientes con `uv run alembic upgrade <actual>:head --sql` (incluye el `UPDATE core.alembic_version`)
+  → leerlo entero → ejecutarlo por MCP (`execute_sql`) en UNA transacción → comprobar que
+  `core.alembic_version` = head y que la estructura coincide con la local → `get_advisors` (security).
+- Alternativa equivalente: `alembic upgrade head` con `DATABASE_URL_MIGRATIONS` (requiere la contraseña).
+- La primera revisión no crea los schemas: en modo `--sql` hay que anteponer
+  `CREATE SCHEMA IF NOT EXISTS raw|analytics|decision|core` dentro de la transacción.
 - `alembic/env.py` filtra los schemas `raw`, `analytics`, `decision` y `core`; nunca generar migraciones
   sobre `public`, `auth` ni `storage`.
 

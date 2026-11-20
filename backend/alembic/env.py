@@ -15,6 +15,10 @@ if config.config_file_name is not None:
 
 target_metadata = Base.metadata
 TARGET_SCHEMAS = ("raw", "analytics", "decision", "core")
+# alembic_version lives in `core`, never in `public`: in Supabase `public` is exposed by
+# the Data API with grants for anon/authenticated, so anyone with the anon key could
+# read or rewrite the schema version.
+VERSION_TABLE_SCHEMA = "core"
 
 
 def include_name(name, type_, parent_names):
@@ -32,6 +36,7 @@ def run_migrations_offline() -> None:
         dialect_opts={"paramstyle": "named"},
         include_schemas=True,
         include_name=include_name,
+        version_table_schema=VERSION_TABLE_SCHEMA,
     )
 
     with context.begin_transaction():
@@ -55,6 +60,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
             include_schemas=True,
             include_name=include_name,
+            version_table_schema=VERSION_TABLE_SCHEMA,
         )
 
         with context.begin_transaction():
