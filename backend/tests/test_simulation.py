@@ -1,6 +1,6 @@
 """Disponibilidad simulada, transacciones y entrada de fechas."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, event
@@ -109,3 +109,15 @@ def test_synthetic_request_in_past_does_not_rewind_sim_clock(
 
     db.refresh(sim)
     assert sim.current_sim_datetime == before
+
+
+def test_mark_assignment_prunes_long_finished_assignments(db: Session) -> None:
+    old_start = FAR_FUTURE - timedelta(days=3)
+    mark_unit_assigned_in_simulation(db, "U-OLD", "S-OLD", old_start, 45)
+    mark_unit_assigned_in_simulation(db, "U-TEST", "S-1", FAR_FUTURE - timedelta(hours=2), 45)
+
+    sim = mark_unit_assigned_in_simulation(db, "U-TEST", "S-2", FAR_FUTURE, 45)
+
+    assignments = sim.active_assignments_json
+    assert "U-OLD" not in assignments  # terminó >24 h antes del reloj
+    assert [a["service_id"] for a in assignments["U-TEST"]] == ["S-1", "S-2"]

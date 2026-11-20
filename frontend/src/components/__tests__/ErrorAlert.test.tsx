@@ -19,6 +19,12 @@ describe("ErrorAlert", () => {
     expect(alert.textContent).toMatch(/ya tiene una decisión/i);
   });
 
+  it("shows the request id as a support reference", () => {
+    render(<ErrorAlert error={new ApiError(500, "INTERNAL_ERROR", "x", "req-9")} />);
+
+    expect(screen.getByRole("alert").textContent).toContain("req-9");
+  });
+
   it("offers retry only for retryable errors", () => {
     const onRetry = vi.fn();
     const { rerender } = render(

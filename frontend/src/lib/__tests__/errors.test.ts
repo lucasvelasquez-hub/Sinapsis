@@ -35,6 +35,21 @@ describe("apiFetch", () => {
     expect(err.message).toContain("DISPATCHED");
   });
 
+  it("keeps the backend request id for support", async () => {
+    mockFetch(async () =>
+      new Response(
+        JSON.stringify({
+          error: { code: "INTERNAL_ERROR", message: "Error interno del servidor.", request_id: "req-9" },
+        }),
+        { status: 500 }
+      )
+    );
+
+    const err = await apiErrorOf("/requests");
+
+    expect(err.requestId).toBe("req-9");
+  });
+
   it("falls back to HTTP status when the body is not JSON", async () => {
     mockFetch(async () => new Response("boom", { status: 502 }));
 
