@@ -38,3 +38,10 @@ frontend/.env.local
 
 # Espacio de trabajo de planes (superpowers)
 .superpowers/
+
+# Swaps de editor (pueden contener secretos, p. ej. de backend/.env)
+*.swp
+*.swo
+*~
+backend/.env.*
+!backend/.env.example
