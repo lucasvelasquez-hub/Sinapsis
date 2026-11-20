@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { EChartWrapper } from "@/components/EChartWrapper";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
@@ -18,13 +18,9 @@ export default function IntelligenceCenterPage() {
     queryFn: coreApi.getAnalyticsOverview,
   });
 
-  const [weightTime, setWeightTime] = useState(0.8);
-
-  useEffect(() => {
-    if (configQuery.data) {
-      setWeightTime(configQuery.data.weight_time);
-    }
-  }, [configQuery.data]);
+  // Borrador local del slider; sin edición se muestra el valor persistido.
+  const [draftWeightTime, setWeightTime] = useState<number | null>(null);
+  const weightTime = draftWeightTime ?? configQuery.data?.weight_time ?? 0.8;
 
   const updateMutation = useMutation({
     mutationFn: (wt: number) =>
@@ -33,6 +29,7 @@ export default function IntelligenceCenterPage() {
         weight_workload: Number((1 - wt).toFixed(2)),
       }),
     onSuccess: () => {
+      setWeightTime(null);
       queryClient.invalidateQueries({ queryKey: ["scoring-config"] });
     },
   });
