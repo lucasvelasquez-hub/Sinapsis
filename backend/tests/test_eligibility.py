@@ -7,6 +7,7 @@ from app.domain.enums import ExclusionCode
 from app.models.raw import RawService
 from app.schemas.dispatch import ExclusionReason
 from app.services.eligibility_service import evaluate_eligibility
+from app.services.simulation_service import mark_unit_assigned_in_simulation
 
 
 def test_every_exclusion_has_codes_aligned_with_reasons(db: Session) -> None:
@@ -69,3 +70,36 @@ def test_capacity_is_no_longer_an_exclusion(db: Session) -> None:
         ExclusionCode.INSUFFICIENT_CAPACITY not in ex.reason_codes
         for ex in evaluation.excluded_units
     )
+
+
+def test_a_request_is_not_blocked_by_its_own_simulated_assignment(db: Session) -> None:
+    """Al revisar una solicitud ya despachada, su unidad no aparece ocupada por ella misma;
+    otra solicitud en el mismo instante sí la ve ocupada."""
+    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+    evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
+    unit_id = evaluation.eligible_units[0].unit_id
+    mark_unit_assigned_in_simulation(
+        db,
+        unit_id=unit_id,
+        service_id=service.service_id,
+        start_dt=service.request_datetime,
+        duration_min=60,
+    )
+    other = RawService(
+        service_id="SIM-OTRA",
+        request_datetime=service.request_datetime,
+        urgency_level="ALTA",
+        service_type="EMERGENCIA_MEDICA",
+        zone_id="COMUNA_01",
+        status="PENDING",
+        is_synthetic=True,
+    )
+    db.add(other)
+    db.flush()
+
+    own, _ = evaluate_eligibility(db, service, service.request_datetime)
+    theirs, _ = evaluate_eligibility(db, other, other.request_datetime)
+
+    assert unit_id in {u.unit_id for u in own.eligible_units}
+    busy = next(ex for ex in theirs.excluded_units if ex.unit_id == unit_id)
+    assert ExclusionCode.BUSY_IN_SIMULATION in busy.reason_codes

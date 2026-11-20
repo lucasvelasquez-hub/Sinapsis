@@ -77,6 +77,7 @@ def get_units_busy_until(
     unit_ids: Collection[str],
     ref_dt: datetime,
     sim_session: SimulationSession,
+    exclude_service_id: str | None = None,
 ) -> dict[str, datetime | None]:
     """busy_until per unit at ref_dt, or None when available.
 
@@ -99,7 +100,7 @@ def get_units_busy_until(
     for unit_id in unit_ids:
         sim_busy = [
             end
-            for start, end in _unit_assignment_windows(sim_session, unit_id)
+            for start, end in _unit_assignment_windows(sim_session, unit_id, exclude_service_id)
             if (start is None or start <= ref_dt) and end > ref_dt
         ]
         result[unit_id] = max(sim_busy) if sim_busy else hist.get(unit_id)
@@ -140,10 +141,12 @@ def get_units_workload_windows(
 
 
 def _unit_assignment_windows(
-    sim_session: SimulationSession, unit_id: str
+    sim_session: SimulationSession, unit_id: str, exclude_service_id: str | None = None
 ) -> list[tuple[datetime | None, datetime]]:
     """(assigned_at, busy_until) of every simulated assignment of a unit.
 
+    `exclude_service_id` skips the occupation created by that service's own decision: reviewing
+    a dispatched request must not show its unit as busy because of itself.
     Accepts the legacy shape (one dict per unit) and the current one (a list).
     """
     entries = (sim_session.active_assignments_json or {}).get(unit_id) or []
@@ -152,6 +155,8 @@ def _unit_assignment_windows(
     windows: list[tuple[datetime | None, datetime]] = []
     for entry in entries:
         if not entry.get("busy_until"):
+            continue
+        if exclude_service_id and entry.get("service_id") == exclude_service_id:
             continue
         start = entry.get("assigned_at")
         windows.append(

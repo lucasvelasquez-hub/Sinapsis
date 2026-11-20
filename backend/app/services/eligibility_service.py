@@ -80,7 +80,9 @@ def evaluate_eligibility(
         ).scalars()
     }
     unit_ids = [u.unit_id for u in units]
-    busy = get_units_busy_until(db, unit_ids, ref_dt, sim_session)
+    busy = get_units_busy_until(
+        db, unit_ids, ref_dt, sim_session, exclude_service_id=service.service_id
+    )
     workloads = get_units_workload_windows(db, unit_ids, ref_dt)
 
     eligible_units: list[UnitStatusOut] = []
