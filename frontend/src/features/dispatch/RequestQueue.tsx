@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 
 import { QueryErrorAlert, type RetryableQuery } from "@/components/ErrorAlert";
-import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { useCatalog } from "@/features/catalog/useCatalog";
 import { cn } from "@/lib/utils";
 import { type QueueStatus, useDispatchStore } from "@/stores/dispatchStore";
@@ -78,7 +77,6 @@ export function RequestQueue({
               </span>
             )}
           </h2>
-          <ProvenanceBadge type="OBSERVADO" />
         </div>
         <input
           type="search"

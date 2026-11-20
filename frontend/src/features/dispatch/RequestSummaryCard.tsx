@@ -53,7 +53,7 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
         </div>
         <div>
           <dt className="flex flex-wrap items-center gap-1.5 text-slate-400">
-            Demanda <ProvenanceBadge type="CALCULADO" />
+            Demanda
           </dt>
           <dd className="mt-0.5 text-sm tabular-nums text-slate-100">
             {context.zone_demand_4h} en 4h, {context.zone_demand_8h} en 8h,{" "}

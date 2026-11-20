@@ -1,4 +1,3 @@
-import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import type { DecisionOut } from "@/types/core";
 
 export function DecisionHistory({
@@ -12,7 +11,6 @@ export function DecisionHistory({
         <h2 className="text-sm font-semibold text-slate-100">
           Últimas decisiones
         </h2>
-        <ProvenanceBadge type="OBSERVADO" />
       </div>
       {decisions?.length === 0 && (
         <p className="text-xs text-slate-300">

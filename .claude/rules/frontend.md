@@ -13,6 +13,7 @@ paths:
   schema del backend, se actualiza aquí en el mismo cambio.
 - Formularios: React Hook Form + Zod. Estado de UI compartido: Zustand (`src/stores/`).
 - Gráficos con `EChartWrapper`; todo valor mostrado lleva `ProvenanceBadge`
-  (`OBSERVADO` / `CALCULADO` / `PREDICHO` / `SIMULADO`).
+  (`OBSERVADO` / `CALCULADO` / `PREDICHO` / `SIMULADO`). En Despacho (`src/features/dispatch/`) se omiten
+  `OBSERVADO` y `CALCULADO`; `PREDICHO` y `SIMULADO` siempre (`__tests__/provenance.test.tsx` lo vigila).
 - La UI nunca asigna una unidad sin confirmación explícita del despachador.
 - Antes de commit: `npm run lint`, `npx vitest run` y `npm run build`.

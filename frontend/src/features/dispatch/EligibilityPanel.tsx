@@ -44,7 +44,9 @@ export function EligibilityPanel({
           {assignedUnitId ? (
             <>
               <span className="text-slate-300">Unidad asignada: </span>
-              <span className="font-mono font-semibold text-slate-50">{assignedUnitId}</span>
+              <span className="font-mono font-semibold text-slate-50">
+                {assignedUnitId}
+              </span>
               {assignedEligible && (
                 <span className="text-slate-300">
                   {" "}
@@ -54,12 +56,16 @@ export function EligibilityPanel({
               {!assignedEligible && (
                 <p className="mt-1 text-xs text-amber-200">
                   No estaba entre las elegibles al momento de la solicitud
-                  {assignedExcluded ? `: ${assignedExcluded.reasons.join("; ")}` : "."}
+                  {assignedExcluded
+                    ? `: ${assignedExcluded.reasons.join("; ")}`
+                    : "."}
                 </p>
               )}
             </>
           ) : (
-            <span className="text-slate-300">Rechazada sin asignar ninguna unidad.</span>
+            <span className="text-slate-300">
+              Rechazada sin asignar ninguna unidad.
+            </span>
           )}
         </div>
       )}
@@ -83,7 +89,9 @@ export function EligibilityPanel({
               <tr
                 key={u.unit_id}
                 aria-current={u.unit_id === assignedUnitId ? "true" : undefined}
-                className={u.unit_id === assignedUnitId ? "bg-cyan-500/10" : undefined}
+                className={
+                  u.unit_id === assignedUnitId ? "bg-cyan-500/10" : undefined
+                }
               >
                 <td className="py-1.5 font-mono text-slate-50">
                   {u.unit_id}

@@ -75,7 +75,10 @@ export function DecisionPanel({
       } catch (error) {
         // Si el despachador ya cambió de solicitud, el panel no está para mostrarlo: va al aviso.
         const { title, message } = describeApiError(error);
-        store.setLastDecisionError({ serviceId: payload.service_id, message: `${title}. ${message}` });
+        store.setLastDecisionError({
+          serviceId: payload.service_id,
+          message: `${title}. ${message}`,
+        });
         throw error;
       }
     },
@@ -125,9 +128,15 @@ export function DecisionPanel({
   const evaluated = Boolean(rec);
   // El Top 3 se evaluó antes: una candidata que ya no está entre las elegibles actuales
   // (p. ej. se despachó a otra solicitud) no se puede seleccionar.
-  const eligibleNow = new Set(eligibility?.eligible_units.map((u) => u.unit_id));
+  const eligibleNow = new Set(
+    eligibility?.eligible_units.map((u) => u.unit_id),
+  );
   const unavailable = new Set(
-    eligibility ? (rec?.candidates ?? []).map((c) => c.unit_id).filter((id) => !eligibleNow.has(id)) : []
+    eligibility
+      ? (rec?.candidates ?? [])
+          .map((c) => c.unit_id)
+          .filter((id) => !eligibleNow.has(id))
+      : [],
   );
   // Los avisos que comparten todas las candidatas (p. ej. "sin GPS") se muestran una vez.
   const commonWarnings = rec?.candidates.length
@@ -145,7 +154,8 @@ export function DecisionPanel({
 
   const confirm = () => {
     if (!rec || !selection || !dispatcherId || submitting.current) return;
-    if (selection.kind === "candidate" && unavailable.has(selection.unitId)) return;
+    if (selection.kind === "candidate" && unavailable.has(selection.unitId))
+      return;
     submitting.current = true;
     // El aviso de página no debe seguir mostrando la decisión anterior como si fuera esta.
     const store = useDispatchStore.getState();
@@ -297,10 +307,7 @@ export function DecisionPanel({
         </>
       )}
 
-      <ErrorAlert
-        error={decisionMutation.error}
-        onRetry={confirm}
-      />
+      <ErrorAlert error={decisionMutation.error} onRetry={confirm} />
     </div>
   );
 }

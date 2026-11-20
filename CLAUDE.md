@@ -30,7 +30,9 @@ Arquitectura (7 nodos): `docs/architecture/overview.md`.
 - **Sin GPS ni distancias**: no hay ETA individual, costo operativo ni cobertura geográfica. El tiempo
   esperado es contextual (histórico/ML). No inventar features geográficas.
 - **Procedencia visible**: todo dato mostrado lleva su badge `OBSERVADO` / `CALCULADO` / `PREDICHO` /
-  `SIMULADO` (`frontend/src/components/ProvenanceBadge.tsx`).
+  `SIMULADO` (`frontend/src/components/ProvenanceBadge.tsx`). Excepción (decisión del usuario,
+  2026-11-20): en la pantalla de Despacho, vista operativa, se omiten `OBSERVADO` y `CALCULADO`;
+  `PREDICHO` y `SIMULADO` (lo que no es dato real) se muestran siempre.
 - **Sin fuga temporal**: features y evaluación siempre cronológicas. Ver `.claude/rules/ml.md`.
 - **Explicabilidad**: toda exclusión de elegibilidad guarda su motivo; sin unidades elegibles se devuelve
   `NO_ELIGIBLE_UNITS`, nunca una lista vacía silenciosa.

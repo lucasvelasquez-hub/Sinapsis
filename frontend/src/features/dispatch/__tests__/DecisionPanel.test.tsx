@@ -276,7 +276,9 @@ describe("DecisionPanel — fallos y datos desfasados", () => {
   it("retry sends what is selected now, not the payload that failed", async () => {
     const record = vi
       .spyOn(coreApi, "recordDecision")
-      .mockRejectedValueOnce(new ApiError(0, "NETWORK_ERROR", "Failed to fetch"))
+      .mockRejectedValueOnce(
+        new ApiError(0, "NETWORK_ERROR", "Failed to fetch"),
+      )
       .mockResolvedValueOnce(DECISION);
     withRecommendation();
     renderPanel();
@@ -288,12 +290,17 @@ describe("DecisionPanel — fallos y datos desfasados", () => {
     fireEvent.click(button(/reintentar/i));
 
     await waitFor(() => expect(record).toHaveBeenCalledTimes(2));
-    expect(record.mock.calls[1][0]).toMatchObject({ assigned_unit_id: "MOV-024", accepted: true });
+    expect(record.mock.calls[1][0]).toMatchObject({
+      assigned_unit_id: "MOV-024",
+      accepted: true,
+    });
   });
 
   it("a failure after leaving the request is reported in the store, not lost", async () => {
     let fail!: (e: Error) => void;
-    vi.spyOn(coreApi, "recordDecision").mockReturnValue(new Promise((_, r) => (fail = r)));
+    vi.spyOn(coreApi, "recordDecision").mockReturnValue(
+      new Promise((_, r) => (fail = r)),
+    );
     useDispatchStore.getState().setLastDecision(DECISION);
     withRecommendation();
     const { unmount } = renderPanel();
@@ -304,12 +311,18 @@ describe("DecisionPanel — fallos y datos desfasados", () => {
     unmount();
     await act(async () => fail(new Error("Failed to fetch")));
 
-    expect(useDispatchStore.getState().lastDecisionError).toMatchObject({ serviceId: "SIM-0004" });
+    expect(useDispatchStore.getState().lastDecisionError).toMatchObject({
+      serviceId: "SIM-0004",
+    });
   });
 
   it("a recommended unit that is no longer eligible cannot be selected", () => {
     withRecommendation();
-    renderPanel("SIM-0004", "PENDING", eligibility(["MOV-012", "MOV-016", "MOV-007"]));
+    renderPanel(
+      "SIM-0004",
+      "PENDING",
+      eligibility(["MOV-012", "MOV-016", "MOV-007"]),
+    );
 
     const gone = radio("MOV-024") as HTMLButtonElement;
     expect(gone.disabled).toBe(true);

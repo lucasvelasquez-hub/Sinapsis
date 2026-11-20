@@ -19,8 +19,11 @@ export function LastDecisionBanner() {
         className="flex items-start justify-between gap-3 rounded-md border border-rose-400/60 bg-rose-500/10 px-3 py-2 text-sm text-rose-100"
       >
         <span>
-          <span className="font-semibold">No se registró la decisión de {failure.serviceId}.</span>{" "}
-          {failure.message} La solicitud sigue pendiente: selecciónala y confirma de nuevo.
+          <span className="font-semibold">
+            No se registró la decisión de {failure.serviceId}.
+          </span>{" "}
+          {failure.message} La solicitud sigue pendiente: selecciónala y
+          confirma de nuevo.
         </span>
         <button
           type="button"

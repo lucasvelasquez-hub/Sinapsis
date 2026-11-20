@@ -105,7 +105,10 @@ describe("RequestQueue — procedencia y fecha", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("marks simulated requests and shows the full date", () => {
-    renderQueue([request("SIM-1"), request("SRV-00001", { is_synthetic: false, status: "COMPLETED" })]);
+    renderQueue([
+      request("SIM-1"),
+      request("SRV-00001", { is_synthetic: false, status: "COMPLETED" }),
+    ]);
 
     const sim = screen.getByRole("button", { name: /SIM-1/ });
     const hist = screen.getByRole("button", { name: /SRV-00001/ });
