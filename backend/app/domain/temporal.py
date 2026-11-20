@@ -11,11 +11,13 @@ from datetime import UTC, datetime, timedelta
 PEAK_HOUR_RANGES: tuple[tuple[int, int], ...] = ((7, 10), (17, 20))  # inclusive
 WINDOW_HOURS: tuple[int, int, int] = (4, 8, 12)
 
-SHIFT_HOURS: dict[str, tuple[int, int]] = {  # [start, end) — NIGHT wraps midnight
-    "MORNING": (6, 14),
-    "AFTERNOON": (14, 22),
-    "NIGHT": (22, 6),
+# [start, end) — TURNO_NOCHE cruza la medianoche. Horario inferido del dataset: TURNO_DIA
+# solo recibe asignaciones entre las 06 y las 17 h.
+SHIFT_HOURS: dict[str, tuple[int, int]] = {
+    "TURNO_DIA": (6, 18),
+    "TURNO_NOCHE": (18, 6),
 }
+ALWAYS_ON_SHIFT = "TURNO_24H"
 
 
 def utcnow() -> datetime:
@@ -63,7 +65,7 @@ def window_counts(timestamps: Iterable[datetime], ref_dt: datetime) -> tuple[int
 
 def shift_covers_hour(shift: str, hour: int) -> bool:
     """S(j, t): whether the unit's shift covers the request hour."""
-    if shift == "FULL_24H":
+    if shift == ALWAYS_ON_SHIFT:
         return True
     bounds = SHIFT_HOURS.get(shift)
     if bounds is None:

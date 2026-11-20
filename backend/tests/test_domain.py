@@ -3,10 +3,12 @@
 from datetime import datetime
 
 import pytest
-from app.domain.temporal import shift_covers_hour, temporal_context, window_counts
-from app.ml.features import FEATURE_COLUMNS, build_feature_frame
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+
+from app.domain.enums import UrgencyLevel
+from app.domain.temporal import shift_covers_hour, temporal_context, window_counts
+from app.ml.features import FEATURE_COLUMNS, build_feature_frame
 
 REF = datetime(2026, 10, 30, 12, 0)  # viernes
 
@@ -42,15 +44,33 @@ def test_window_counts_only_strictly_before_ref() -> None:
     assert window_counts(stamps, REF) == (1, 2, 3)
 
 
-def test_shift_covers_hour() -> None:
-    assert shift_covers_hour("FULL_24H", 3) is True
-    assert shift_covers_hour("MORNING", 8) is True
-    assert shift_covers_hour("MORNING", 15) is False
-    assert shift_covers_hour("AFTERNOON", 18) is True
-    assert shift_covers_hour("NIGHT", 23) is True
-    assert shift_covers_hour("NIGHT", 2) is True
-    assert shift_covers_hour("NIGHT", 12) is False
-    assert shift_covers_hour("UNKNOWN", 12) is False
+@pytest.mark.parametrize(
+    ("shift", "hour", "covered"),
+    [
+        ("TURNO_DIA", 5, False),
+        ("TURNO_DIA", 6, True),
+        ("TURNO_DIA", 17, True),
+        ("TURNO_DIA", 18, False),
+        ("TURNO_NOCHE", 17, False),
+        ("TURNO_NOCHE", 18, True),
+        ("TURNO_NOCHE", 0, True),
+        ("TURNO_NOCHE", 5, True),
+        ("TURNO_NOCHE", 6, False),
+        ("TURNO_24H", 12, True),
+        ("TURNO_DESCONOCIDO", 12, False),
+    ],
+)
+def test_shift_covers_hour_new_shifts(shift: str, hour: int, covered: bool) -> None:
+    assert shift_covers_hour(shift, hour) is covered
+
+
+def test_every_hour_is_covered_by_exactly_one_12h_shift() -> None:
+    for hour in range(24):
+        assert shift_covers_hour("TURNO_DIA", hour) != shift_covers_hour("TURNO_NOCHE", hour)
+
+
+def test_urgency_levels_match_dataset() -> None:
+    assert [u.value for u in UrgencyLevel] == ["CRITICA", "ALTA", "MEDIA", "BAJA"]
 
 
 def test_build_feature_frame_columns_and_same_zone() -> None:

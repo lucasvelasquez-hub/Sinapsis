@@ -23,3 +23,12 @@ class ExclusionCode(StrEnum):
     INSUFFICIENT_CAPACITY = "INSUFFICIENT_CAPACITY"
     OUT_OF_SHIFT = "OUT_OF_SHIFT"
     BUSY_IN_SIMULATION = "BUSY_IN_SIMULATION"
+
+
+class UrgencyLevel(StrEnum):
+    """Urgencias del dataset, de mayor a menor (CHECK `ck_services_urgency`)."""
+
+    CRITICA = "CRITICA"
+    ALTA = "ALTA"
+    MEDIA = "MEDIA"
+    BAJA = "BAJA"
