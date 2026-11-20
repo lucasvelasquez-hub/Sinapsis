@@ -44,18 +44,7 @@
   intencional (la auditoría no se borra), pero deja el dataset de Supabase fijo. Si hay que cambiarlo:
   ingesta incremental (insertar/actualizar sin borrar lo referenciado), un proyecto o branch de Supabase
   aparte para pruebas, o una migración específica que conserve la auditoría.
-- **La re-ingesta no reinicia la sesión de simulación.** `core.simulation_sessions['default']` solo se crea
-  si falta: el reloj y `active_assignments_json` del dataset anterior se conservan. Reiniciarlos al
-  re-ingerir (reloj = última solicitud, asignaciones vacías).
-- **Ocupación simulada desde la solicitud.** `decision_service` marca la unidad ocupada desde
-  `request_datetime` durante la mediana asignación→cierre: la libera antes por el retraso típico de
-  despacho. Sumar la mediana de cola de despacho o documentarlo.
-- **Validación del modal contra el catálogo.** El Zod de `SimulateRequestModal` solo exige valores no
-  vacíos; la validación real la hace el backend (422). Construir el esquema desde el catálogo si se quiere
-  el error en el front.
-- **Fallback de predicción fijo.** `FALLBACK_BY_URGENCY` (8/15/30/60 min) está en código; añadir un test
-  que lo compare con `data/raw/response_targets.csv` o leerlo de la DB.
-- **Carga 4/8/12h sin índice.** El filtro por `coalesce(assignment_datetime, request_datetime)` recorre la
-  tabla; irrelevante con 10.000 servicios, revisar (índice de expresión) si `raw.services` crece mucho.
+- **Migración `ef22a023e97b` (índice de carga por unidad) sin aplicar en Supabase.** Aplicada en local.
+  Supabase sigue en `10020845ba5b`; la app funciona igual sin el índice.
 - **Flujo evaluar/decidir no probado contra Supabase** (pooler 6543 con escrituras). Probado en local;
   hacer una prueba manual cuando se autorice escribir en Supabase.
