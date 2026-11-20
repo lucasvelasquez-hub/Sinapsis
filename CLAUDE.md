@@ -47,6 +47,11 @@ Arquitectura (7 nodos): `docs/architecture/overview.md`.
 # DB local (tests)
 docker compose up -d
 
+# Reiniciar la DB local desde cero. BORRA decisiones y auditoría locales: la re-ingesta
+# sobre una DB con decisiones falla a propósito (las FK protegen la auditoría).
+docker compose down -v && docker compose up -d
+cd backend && uv run alembic upgrade head && uv run python ../scripts/ingest_and_prepare.py
+
 # Backend (desde backend/)
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
