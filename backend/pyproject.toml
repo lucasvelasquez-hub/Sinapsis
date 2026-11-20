@@ -19,14 +19,16 @@ dependencies = [
 
 [dependency-groups]
 dev = [
+    "httpx2>=2.0.0",
     "pytest>=8.3.3",
-    "httpx>=0.27.2",
     "ruff>=0.7.0",
 ]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+# Las deprecaciones de Starlette/FastAPI rompen la suite en lugar de pasar desapercibidas.
+filterwarnings = ["error::starlette.exceptions.StarletteDeprecationWarning"]
 
 [tool.ruff]
 line-length = 100
