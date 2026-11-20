@@ -117,7 +117,7 @@ def main() -> None:
                 )
             )
 
-        # Default Simulation Session positioned at latest historical timestamp + 5 min
+        # Default Simulation Session positioned at the latest historical request timestamp
         latest_dt = services_df["request_datetime"].max().to_pydatetime()
         if db.get(SimulationSession, "default") is None:
             db.add(
@@ -137,7 +137,10 @@ def main() -> None:
 
         # Export processed snapshot for ML reproducibility
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        features_df = pd.read_sql("SELECT * FROM analytics.service_features", db.bind)
+        # computed_at is excluded: the snapshot must be identical across runs (reproducible).
+        features_df = pd.read_sql(
+            "SELECT * FROM analytics.service_features ORDER BY service_id", db.bind
+        ).drop(columns=["computed_at"])
         features_df.to_csv(PROCESSED_DIR / "service_features.csv", index=False)
         print(f"Exported {len(features_df)} rows to {PROCESSED_DIR / 'service_features.csv'}")
 
