@@ -57,6 +57,17 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
   return res.json() as Promise<T>;
 }
 
+/** Cuerpo de POST /decisions (DecisionCreate en el backend). */
+export interface DecisionCreatePayload {
+  service_id: string;
+  recommendation_id: string | null;
+  recommended_unit_id: string | null;
+  assigned_unit_id: string | null;
+  accepted: boolean;
+  rejection_reason: string | null;
+  dispatcher_id: string;
+}
+
 export const coreApi = {
   getHealth: () => apiFetch<HealthResponse>("/health"),
 
@@ -105,15 +116,7 @@ export const coreApi = {
 
   getFleetUnits: () => apiFetch<UnitStatus[]>("/fleet/units"),
 
-  recordDecision: (payload: {
-    service_id: string;
-    recommendation_id?: string | null;
-    recommended_unit_id?: string | null;
-    assigned_unit_id?: string | null;
-    accepted: boolean;
-    rejection_reason?: string | null;
-    dispatcher_id: string;
-  }) =>
+  recordDecision: (payload: DecisionCreatePayload) =>
     apiFetch<DecisionOut>("/decisions", {
       method: "POST",
       body: JSON.stringify(payload),
