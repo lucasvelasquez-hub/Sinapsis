@@ -47,7 +47,7 @@ export function ErrorAlert({
   );
 }
 
-interface RetryableQuery {
+export interface RetryableQuery {
   error: unknown;
   /** Error del último intento mientras React Query sigue reintentando. */
   failureReason?: unknown;

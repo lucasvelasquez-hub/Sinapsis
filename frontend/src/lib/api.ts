@@ -66,12 +66,16 @@ export const coreApi = {
     urgency_level?: string;
     zone_id?: string;
     status?: string;
+    service_type?: string;
+    q?: string;
     limit?: number;
   }) => {
     const qs = new URLSearchParams();
     if (params?.urgency_level) qs.set("urgency_level", params.urgency_level);
     if (params?.zone_id) qs.set("zone_id", params.zone_id);
     if (params?.status) qs.set("status", params.status);
+    if (params?.service_type) qs.set("service_type", params.service_type);
+    if (params?.q) qs.set("q", params.q);
     if (params?.limit) qs.set("limit", String(params.limit));
     const q = qs.toString();
     return apiFetch<RequestSummary[]>(`/requests${q ? `?${q}` : ""}`);

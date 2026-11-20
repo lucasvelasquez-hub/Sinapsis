@@ -14,20 +14,15 @@ import { useEffect, useState } from "react";
 
 import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
-import { useCatalog } from "@/features/catalog/useCatalog";
 import { DispatcherField } from "@/features/decisions/DispatcherField";
+import { RequestQueue } from "@/features/dispatch/RequestQueue";
+import { URGENCY_BADGE } from "@/features/dispatch/urgency";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import { ApiError, coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDispatchStore } from "@/stores/dispatchStore";
 import { normalizeDispatcherId, useDispatcherStore } from "@/stores/dispatcherStore";
 
-const URGENCY_BADGE: Record<string, string> = {
-  CRITICA: "border-rose-500/50 bg-rose-500/15 text-rose-300",
-  ALTA: "border-amber-500/50 bg-amber-500/15 text-amber-300",
-  MEDIA: "border-sky-500/50 bg-sky-500/15 text-sky-300",
-  BAJA: "border-slate-600 bg-slate-800 text-slate-300",
-};
 
 export default function DispatchCenterPage() {
   const queryClient = useQueryClient();
@@ -39,14 +34,10 @@ export default function DispatchCenterPage() {
     selectedServiceId,
     filters,
     recommendations,
-    setSelectedServiceId,
-    setFilter,
     storeRecommendation,
   } = useDispatchStore();
   // Toda decisión queda firmada por quien la toma (invariante: decisión humana registrada).
   const dispatcherId = normalizeDispatcherId(useDispatcherStore((s) => s.dispatcherId));
-
-  const catalogQuery = useCatalog();
 
   const requestsQuery = useQuery({
     queryKey: ["requests", filters],
@@ -54,16 +45,12 @@ export default function DispatchCenterPage() {
       coreApi.listRequests({
         status: filters.status || undefined,
         urgency_level: filters.urgency || undefined,
+        service_type: filters.serviceType || undefined,
         zone_id: filters.zone || undefined,
+        q: filters.search || undefined,
         limit: 40,
       }),
   });
-
-  useEffect(() => {
-    if (!selectedServiceId && requestsQuery.data && requestsQuery.data.length > 0) {
-      setSelectedServiceId(requestsQuery.data[0].service_id);
-    }
-  }, [selectedServiceId, requestsQuery.data, setSelectedServiceId]);
 
   const detailQuery = useQuery({
     queryKey: ["request-detail", selectedServiceId],
@@ -111,12 +98,14 @@ export default function DispatchCenterPage() {
     },
   });
 
-  const selectService = (serviceId: string) => {
-    // Los errores y resultados pertenecen a la solicitud anterior.
-    evalMutation.reset();
-    decisionMutation.reset();
-    setSelectedServiceId(serviceId);
-  };
+  // Los errores y resultados de mutación pertenecen a la solicitud anterior.
+  const resetEval = evalMutation.reset;
+  const resetDecision = decisionMutation.reset;
+  useEffect(() => {
+    resetEval();
+    resetDecision();
+  }, [selectedServiceId, resetEval, resetDecision]);
+
 
   const activeRecommendation = selectedServiceId ? recommendations[selectedServiceId] : undefined;
   const detail = detailQuery.data;
@@ -150,100 +139,14 @@ export default function DispatchCenterPage() {
       {/* Three-Zone Layout */}
       <div className="grid grid-cols-12 gap-4">
         {/* LEFT PANEL: Request Queue */}
-        <section className="col-span-3 flex h-[calc(100vh-11rem)] flex-col rounded-lg border border-slate-800 bg-slate-900/60">
-          <div className="border-b border-slate-800 p-3">
-            <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">
-                Cola de Solicitudes
-              </span>
-              <ProvenanceBadge type="OBSERVADO" />
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={filters.urgency}
-                onChange={(e) => setFilter("urgency", e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
-              >
-                <option value="">Todas Urg.</option>
-                {catalogQuery.data?.urgencies.map((u) => (
-                  <option key={u.code} value={u.code}>
-                    {u.code}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={filters.zone}
-                onChange={(e) => setFilter("zone", e.target.value)}
-                className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
-              >
-                <option value="">Todas Zonas</option>
-                {catalogQuery.data?.zones.map((z) => (
-                  <option key={z} value={z}>
-                    {z}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div className="flex-1 divide-y divide-slate-800/80 overflow-y-auto">
-            {requestsQuery.isLoading && (
-              <div className="p-4 text-xs text-slate-400">Cargando solicitudes...</div>
-            )}
-            <QueryErrorAlert className="m-3" queries={[requestsQuery, catalogQuery]} />
-            {requestsQuery.data?.map((req) => {
-              const selected = req.service_id === selectedServiceId;
-              return (
-                <button
-                  key={req.service_id}
-                  type="button"
-                  onClick={() => selectService(req.service_id)}
-                  className={cn(
-                    "w-full px-3 py-2.5 text-left transition-colors",
-                    selected
-                      ? "bg-cyan-500/10 ring-1 ring-inset ring-cyan-500/40"
-                      : "hover:bg-slate-800/60"
-                  )}
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-mono text-xs font-semibold text-white">
-                      {req.service_id}
-                    </span>
-                    <span
-                      className={cn(
-                        "rounded border px-1.5 py-0.5 font-mono text-[10px] font-semibold",
-                        URGENCY_BADGE[req.urgency_level]
-                      )}
-                    >
-                      {req.urgency_level}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-400">
-                    <span>{req.zone_id}</span>
-                    <span className="font-mono">
-                      {req.request_datetime.replace("T", " ").slice(5, 16)}
-                    </span>
-                  </div>
-                  <div className="mt-1 flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500">{req.service_type}</span>
-                    <span
-                      className={cn(
-                        "font-mono",
-                        req.status === "PENDING"
-                          ? "text-amber-300"
-                          : req.status === "DISPATCHED"
-                          ? "text-emerald-300"
-                          : "text-slate-400"
-                      )}
-                    >
-                      {req.is_synthetic ? `SIM · ${req.status}` : req.status}
-                    </span>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </section>
+        <div className="col-span-3">
+          <RequestQueue
+            requests={requestsQuery.data}
+            isLoading={requestsQuery.isLoading}
+            query={requestsQuery}
+            onCreate={() => setModalOpen(true)}
+          />
+        </div>
 
         {/* CENTER PANEL: Contextualization & Eligibility */}
         <section className="col-span-4 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
