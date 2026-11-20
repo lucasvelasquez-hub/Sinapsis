@@ -14,7 +14,7 @@ from app.services.simulation_service import (
     get_or_create_simulation_session,
     get_unit_busy_until,
     get_units_busy_until,
-    historical_median_occupation_min,
+    historical_median_request_to_closure_min,
     mark_unit_assigned_in_simulation,
     reset_simulation_session,
 )
@@ -165,22 +165,24 @@ def test_unit_with_future_service_is_not_busy(db: Session) -> None:
     assert busy[srv.assigned_unit_id] is None
 
 
-def test_simulated_occupation_uses_median_assignment_to_closure(db: Session) -> None:
+def test_simulated_occupation_uses_median_request_to_closure(db: Session) -> None:
+    # La unidad simulada se ocupa desde la solicitud: la duración debe medirse desde ahí
+    # (cola de despacho + atención), no desde la asignación.
     expected = db.execute(
         text(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY "
-            "EXTRACT(EPOCH FROM (closure_datetime - assignment_datetime)) / 60.0) "
+            "EXTRACT(EPOCH FROM (closure_datetime - request_datetime)) / 60.0) "
             "FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA' AND NOT is_synthetic"
         )
     ).scalar_one()
 
-    assert historical_median_occupation_min(db, "EMERGENCIA_MEDICA") == pytest.approx(
+    assert historical_median_request_to_closure_min(db, "EMERGENCIA_MEDICA") == pytest.approx(
         float(expected)
     )
 
 
 def test_simulated_occupation_falls_back_without_history(db: Session) -> None:
-    assert historical_median_occupation_min(db, "TIPO_INEXISTENTE") == 45.0
+    assert historical_median_request_to_closure_min(db, "TIPO_INEXISTENTE") == 45.0
 
 
 def test_reset_simulation_session_clears_previous_dataset_state(db: Session) -> None:

@@ -12,7 +12,7 @@ from app.schemas.dispatch import DecisionCreate, DecisionOut
 from app.services.audit_service import record_audit_event
 from app.services.eligibility_service import evaluate_eligibility
 from app.services.simulation_service import (
-    historical_median_occupation_min,
+    historical_median_request_to_closure_min,
     mark_unit_assigned_in_simulation,
 )
 
@@ -74,7 +74,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             unit_id=payload.assigned_unit_id,
             service_id=service.service_id,
             start_dt=service.request_datetime,
-            duration_min=historical_median_occupation_min(db, service.service_type),
+            duration_min=historical_median_request_to_closure_min(db, service.service_type),
         )
     else:
         service.status = ServiceStatus.REJECTED

@@ -177,14 +177,15 @@ def test_dispatch_does_not_write_simulated_values_into_raw(
     assert srv.occupation_min is None
 
 
-def test_dispatch_occupies_unit_for_historical_median_occupation(
+def test_dispatch_occupies_unit_from_request_until_median_closure(
     client: TestClient, db: Session, recommended: dict[str, Any]
 ) -> None:
     median = db.execute(
         text(
-            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY occupation_min)"
+            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY"
+            " EXTRACT(EPOCH FROM (closure_datetime - request_datetime)) / 60.0)"
             " FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA'"
-            " AND NOT is_synthetic AND occupation_min IS NOT NULL"
+            " AND NOT is_synthetic AND closure_datetime IS NOT NULL"
         )
     ).scalar_one()
     unit_id = recommended["candidates"][0]["unit_id"]

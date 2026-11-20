@@ -146,16 +146,21 @@ def _unit_assignment_windows(
     return windows
 
 
-def historical_median_occupation_min(db: Session, service_type: str) -> float:
-    """Median occupation (assignment → closure) for the type: when the unit is free again.
+def historical_median_request_to_closure_min(db: Session, service_type: str) -> float:
+    """Median minutes from request to closure for the type (dispatch queue + travel + service).
 
-    CALCULADO from OBSERVADO data; FALLBACK_SERVICE_DURATION_MIN without history.
+    A simulated decision occupies the unit from the request time, so the duration must be
+    measured from there too. CALCULADO from OBSERVADO data; FALLBACK_SERVICE_DURATION_MIN
+    without history.
     """
+    minutes = (
+        func.extract("epoch", RawService.closure_datetime - RawService.request_datetime) / 60.0
+    )
     median = db.execute(
-        select(func.percentile_cont(0.5).within_group(RawService.occupation_min)).where(
+        select(func.percentile_cont(0.5).within_group(minutes)).where(
             RawService.service_type == service_type,
             RawService.is_synthetic.is_(False),
-            RawService.occupation_min.is_not(None),
+            RawService.closure_datetime.is_not(None),
         )
     ).scalar_one_or_none()
     return float(median) if median is not None else FALLBACK_SERVICE_DURATION_MIN
