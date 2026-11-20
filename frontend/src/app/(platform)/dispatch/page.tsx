@@ -12,9 +12,10 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { ErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
-import { coreApi } from "@/lib/api";
+import { ApiError, coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDispatchStore } from "@/stores/dispatchStore";
 
@@ -82,19 +83,34 @@ export default function DispatchCenterPage() {
     },
   });
 
+  const refreshAfterDecision = () => {
+    queryClient.invalidateQueries({ queryKey: ["requests"] });
+    queryClient.invalidateQueries({ queryKey: ["request-detail", selectedServiceId] });
+    queryClient.invalidateQueries({ queryKey: ["eligibility", selectedServiceId] });
+    queryClient.invalidateQueries({ queryKey: ["decisions"] });
+    queryClient.invalidateQueries({ queryKey: ["fleet-units"] });
+    queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+  };
+
   const decisionMutation = useMutation({
     mutationFn: coreApi.recordDecision,
     onSuccess: () => {
       setShowRejectBox(false);
       setRejectReason("");
-      queryClient.invalidateQueries({ queryKey: ["requests"] });
-      queryClient.invalidateQueries({ queryKey: ["request-detail", selectedServiceId] });
-      queryClient.invalidateQueries({ queryKey: ["eligibility", selectedServiceId] });
-      queryClient.invalidateQueries({ queryKey: ["decisions"] });
-      queryClient.invalidateQueries({ queryKey: ["fleet-units"] });
-      queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+      refreshAfterDecision();
+    },
+    onError: (error) => {
+      // 409: la solicitud cambió de estado en otro lado; mostrar su estado real.
+      if (error instanceof ApiError && error.status === 409) refreshAfterDecision();
     },
   });
+
+  const selectService = (serviceId: string) => {
+    // Los errores y resultados pertenecen a la solicitud anterior.
+    evalMutation.reset();
+    decisionMutation.reset();
+    setSelectedServiceId(serviceId);
+  };
 
   const detail = detailQuery.data;
   const eligibility = eligibilityQuery.data;
@@ -163,13 +179,18 @@ export default function DispatchCenterPage() {
             {requestsQuery.isLoading && (
               <div className="p-4 text-xs text-slate-400">Cargando solicitudes...</div>
             )}
+            <ErrorAlert
+              className="m-3"
+              error={requestsQuery.error}
+              onRetry={() => requestsQuery.refetch()}
+            />
             {requestsQuery.data?.map((req) => {
               const selected = req.service_id === selectedServiceId;
               return (
                 <button
                   key={req.service_id}
                   type="button"
-                  onClick={() => setSelectedServiceId(req.service_id)}
+                  onClick={() => selectService(req.service_id)}
                   className={cn(
                     "w-full px-3 py-2.5 text-left transition-colors",
                     selected
@@ -219,6 +240,7 @@ export default function DispatchCenterPage() {
 
         {/* CENTER PANEL: Contextualization & Eligibility */}
         <section className="col-span-4 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
+          <ErrorAlert error={detailQuery.error} onRetry={() => detailQuery.refetch()} />
           {!detail ? (
             <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-xs text-slate-400">
               Selecciona una solicitud de la cola para inspeccionar su contexto.
@@ -292,6 +314,11 @@ export default function DispatchCenterPage() {
                   <ProvenanceBadge type="SIMULADO" />
                 </div>
 
+                <ErrorAlert
+                  className="mb-3"
+                  error={eligibilityQuery.error}
+                  onRetry={() => eligibilityQuery.refetch()}
+                />
                 {eligibility && (
                   <>
                     <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
@@ -356,6 +383,12 @@ export default function DispatchCenterPage() {
                 {evalMutation.isPending ? "Evaluando..." : "Evaluar Alternativas"}
               </button>
             </div>
+
+            <ErrorAlert
+              className="mb-3"
+              error={evalMutation.error}
+              onRetry={() => selectedServiceId && evalMutation.mutate(selectedServiceId)}
+            />
 
             {!activeRecommendation ? (
               <div className="rounded border border-dashed border-slate-700 p-6 text-center text-xs text-slate-400">
@@ -458,7 +491,6 @@ export default function DispatchCenterPage() {
                             recommended_unit_id:
                               activeRecommendation.candidates[0]?.unit_id ?? null,
                             assigned_unit_id: cand.unit_id,
-                            recommendation_score: cand.score,
                             accepted: cand.rank === 1,
                             rejection_reason:
                               cand.rank === 1
@@ -519,8 +551,6 @@ export default function DispatchCenterPage() {
                               recommended_unit_id:
                                 activeRecommendation.candidates[0]?.unit_id ?? null,
                               assigned_unit_id: null,
-                              recommendation_score:
-                                activeRecommendation.candidates[0]?.score ?? null,
                               accepted: false,
                               rejection_reason: rejectReason.trim(),
                             })
@@ -536,9 +566,22 @@ export default function DispatchCenterPage() {
               </div>
             )}
 
+            <ErrorAlert
+              className="mt-3"
+              error={decisionMutation.error}
+              onRetry={() =>
+                decisionMutation.variables && decisionMutation.mutate(decisionMutation.variables)
+              }
+            />
             {decisionMutation.isSuccess && (
               <div className="mt-3 rounded border border-emerald-500/40 bg-emerald-500/10 p-2.5 text-xs text-emerald-300">
                 Decisión registrada y escenario simulado actualizado.
+                {decisionMutation.data.eligibility_override.length > 0 && (
+                  <div className="mt-1.5 text-amber-300">
+                    Override de elegibilidad registrado en auditoría:{" "}
+                    {decisionMutation.data.eligibility_override.join(" · ")}
+                  </div>
+                )}
               </div>
             )}
           </div>

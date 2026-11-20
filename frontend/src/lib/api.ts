@@ -16,18 +16,39 @@ import type {
 const API_BASE =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
-async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers ?? {}),
-    },
-  });
+/** Error de la API con el sobre `{ error: { code, message } }` del backend. */
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    readonly code: string,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause);
+    throw new ApiError(0, "NETWORK_ERROR", detail);
+  }
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    const msg = body?.error?.message || `HTTP ${res.status} on ${path}`;
-    throw new Error(msg);
+    throw new ApiError(
+      res.status,
+      body?.error?.code ?? "HTTP_ERROR",
+      body?.error?.message ?? `HTTP ${res.status} on ${path}`
+    );
   }
   return res.json() as Promise<T>;
 }
@@ -79,7 +100,6 @@ export const coreApi = {
     recommendation_id?: string | null;
     recommended_unit_id?: string | null;
     assigned_unit_id?: string | null;
-    recommendation_score?: number | null;
     accepted: boolean;
     rejection_reason?: string | null;
   }) =>

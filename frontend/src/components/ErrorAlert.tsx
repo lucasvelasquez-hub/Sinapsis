@@ -1,0 +1,43 @@
+import { AlertOctagon, RotateCw } from "lucide-react";
+
+import { describeApiError } from "@/lib/errors";
+import { cn } from "@/lib/utils";
+
+export function ErrorAlert({
+  error,
+  onRetry,
+  className,
+}: {
+  error: unknown;
+  onRetry?: () => void;
+  className?: string;
+}) {
+  if (!error) return null;
+  const { title, message, retryable } = describeApiError(error);
+
+  return (
+    <div
+      role="alert"
+      className={cn(
+        "flex items-start gap-2 rounded border border-rose-500/40 bg-rose-500/10 p-2.5 text-xs text-rose-200",
+        className
+      )}
+    >
+      <AlertOctagon className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="font-semibold">{title}</p>
+        <p className="text-rose-200/80">{message}</p>
+        {retryable && onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="mt-2 inline-flex items-center gap-1 rounded border border-rose-400/40 px-2 py-0.5 text-[11px] hover:bg-rose-500/20"
+          >
+            <RotateCw className="h-3 w-3" />
+            Reintentar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
