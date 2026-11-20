@@ -13,7 +13,9 @@ paths:
   (`zone_demand_4h/8h/12h` incluidas). Nada de `shift(-n)`, agregados globales ni `fit` sobre el dataset completo.
 - **Split cronológico** 70/15/15 (train/val/test por fecha). Nunca `train_test_split` aleatorio.
 - Selección de modelo por MAE de **validación**; test solo para reportar. Modelo actual:
-  `linear_regression_ridge` (MAE val 9.6445, test 9.5864). Cambiarlo exige comparar contra estas cifras.
+  `linear_regression_ridge` (MAE val 4.2111, test 3.7562; baseline contextual: val 4.2680, test 3.6898)
+  sobre el dataset mínimo (2026-11-20). La mejora sobre el baseline es marginal en validación y en test
+  el baseline gana en MAE (el ridge gana en p90 y RMSE). Cambiarlo exige comparar contra estas cifras.
 - Semillas fijas (`random_state=42`) en todo lo estocástico.
 - `app/ml/model_artifact.pkl` se regenera con `train_models.py`; no se edita a mano. Si cambian las
   features, re-entrenar y actualizar las métricas en `docs/IMPLEMENTATION_STATUS.md`.

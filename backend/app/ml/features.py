@@ -14,7 +14,7 @@ CATEGORICAL_COLUMNS = [
     "service_type",
     "zone_id",
     "unit_type",
-    "base_zone_id",
+    "base_id",
     "shift",
 ]
 NUMERIC_COLUMNS = [
@@ -23,7 +23,6 @@ NUMERIC_COLUMNS = [
     "is_weekend",
     "is_peak_hour",
     "capacity",
-    "same_zone",
 ]
 FEATURE_COLUMNS = CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
 
@@ -32,7 +31,8 @@ def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
     """Features known at request time for one (service, unit) pair.
 
     `raw` needs: request_datetime, urgency_level, service_type, zone_id,
-    unit_type, base_zone_id, shift, capacity.
+    unit_type, base_id, shift, capacity. There is no base→zone mapping in the dataset,
+    so no "same zone" feature (no invented geography).
     """
     ctx = temporal_context(raw["request_datetime"])
     return {
@@ -40,14 +40,13 @@ def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
         "service_type": raw["service_type"],
         "zone_id": raw["zone_id"],
         "unit_type": raw["unit_type"],
-        "base_zone_id": raw["base_zone_id"],
+        "base_id": raw["base_id"],
         "shift": raw["shift"],
         "hour_of_day": ctx.hour_of_day,
         "day_of_week": ctx.day_of_week,
         "is_weekend": int(ctx.is_weekend),
         "is_peak_hour": int(ctx.is_peak_hour),
         "capacity": int(raw["capacity"]),
-        "same_zone": int(raw["zone_id"] == raw["base_zone_id"]),
     }
 
 

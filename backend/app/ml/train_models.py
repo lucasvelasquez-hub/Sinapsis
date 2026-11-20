@@ -63,7 +63,7 @@ def train_and_evaluate() -> dict:
             s.zone_id,
             s.response_time_min,
             u.unit_type,
-            u.base_zone_id,
+            u.base_id,
             u.shift,
             u.capacity
         FROM raw.services s

@@ -73,25 +73,27 @@ def test_urgency_levels_match_dataset() -> None:
     assert [u.value for u in UrgencyLevel] == ["CRITICA", "ALTA", "MEDIA", "BAJA"]
 
 
-def test_build_feature_frame_columns_and_same_zone() -> None:
+def test_feature_row_uses_base_id_without_same_zone() -> None:
     frame = build_feature_frame(
         [
             {
                 "request_datetime": datetime(2026, 10, 31, 8, 0),
-                "urgency_level": "HIGH",
-                "service_type": "MEDICAL_URGENT",
-                "zone_id": "ZONE-01",
-                "unit_type": "BASIC",
-                "base_zone_id": "ZONE-01",
-                "shift": "MORNING",
+                "urgency_level": "ALTA",
+                "service_type": "EMERGENCIA_MEDICA",
+                "zone_id": "COMUNA_01",
+                "unit_type": "BASICA",
+                "base_id": "BASE-01",
+                "shift": "TURNO_DIA",
                 "capacity": 2,
             }
         ]
     )
 
     assert list(frame.columns) == FEATURE_COLUMNS
+    assert "same_zone" not in frame.columns and "base_zone_id" not in frame.columns
     row = frame.iloc[0]
-    assert (row.is_weekend, row.is_peak_hour, row.same_zone) == (1, 1, 1)
+    assert row.base_id == "BASE-01"
+    assert (row.is_weekend, row.is_peak_hour) == (1, 1)
 
 
 def test_build_feature_frame_matches_persisted_features(db: Session) -> None:
@@ -101,7 +103,7 @@ def test_build_feature_frame_matches_persisted_features(db: Session) -> None:
             text(
                 """
                 SELECT s.request_datetime, s.urgency_level, s.service_type, s.zone_id,
-                       u.unit_type, u.base_zone_id, u.shift, u.capacity,
+                       u.unit_type, u.base_id, u.shift, u.capacity,
                        f.hour_of_day, f.day_of_week, f.is_weekend, f.is_peak_hour
                 FROM raw.services s
                 JOIN raw.units u ON s.assigned_unit_id = u.unit_id

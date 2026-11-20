@@ -20,7 +20,7 @@
 ## Funcionalidades Terminadas
 - **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic (`042b83efd042`, `1c5125447ef6`, `faa75e1c0208` override de elegibilidad, `545b0996db2b` FK/CHECK/decisión única).
 - **Dataset & Features**: 10.000 servicios, 30 móviles, 15 reglas, 4 objetivos, 90 días. Feature engineering cronológico sin leakage temporal (`zone_demand_4h/8h/12h`).
-- **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor`. Seleccionado `linear_regression_ridge` (MAE val `9.6445`, test `9.5864`).
+- **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor`. Dataset mínimo: seleccionado `linear_regression_ridge` por MAE de validación (`4.2111` vs baseline `4.2680`); en test MAE `3.7562` vs baseline `3.6898` (el baseline gana en MAE; el ridge gana en p90 `7.16` vs `7.92` y RMSE). Features sin `same_zone` (el dataset no relaciona base con comuna).
 - **Motores de Decisión**:
   - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ con motivos explícitos de exclusión.
   - `scoring_service.py`: Normalización $[0, 100]$ y $J(j) = w_T \cdot T(j) + w_L \cdot L(j)$ (0.80 / 0.20 configurables).
