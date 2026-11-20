@@ -113,7 +113,7 @@ simuladas no se tocan). Los vocabularios los sirve
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
-- **Estado (2026-11-20): Supabase en la revisión `ef22a023e97b` con el dataset mínimo ingerido**
+- **Estado (2026-11-20): Supabase en la revisión `fb8e822f8f09` con el dataset mínimo ingerido**
   (10.000 servicios, 30 unidades, 15 reglas, 4 objetivos). La app de desarrollo apunta a Supabase.
 - La app usa la DB de `DATABASE_URL` (`backend/.env`). Los tests NO: `tests/conftest.py` la fuerza a
   `TEST_DATABASE_URL` o al Docker local. Con `.env` apuntando a Supabase, `alembic` e

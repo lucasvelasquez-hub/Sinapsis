@@ -33,7 +33,7 @@
 ## Decisiones Técnicas y Limitaciones
 - Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
 - El tiempo esperado es contextual histórico/ML, nunca ETA individual por GPS.
-- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `ef22a023e97b`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
+- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `fb8e822f8f09`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
 
 ## Pendientes técnicos
 
