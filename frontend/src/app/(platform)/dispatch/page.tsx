@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { DispatcherField } from "@/features/decisions/DispatcherField";
+import { EligibilityPanel } from "@/features/dispatch/EligibilityPanel";
 import { RequestQueue } from "@/features/dispatch/RequestQueue";
 import { URGENCY_BADGE } from "@/features/dispatch/urgency";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
@@ -221,47 +222,10 @@ export default function DispatchCenterPage() {
                   <h3 className="text-xs font-semibold uppercase tracking-wider text-slate-300">
                     Nodo 2 · Elegibilidad A(i,j)
                   </h3>
-                  <ProvenanceBadge type="SIMULADO" />
                 </div>
 
                 <QueryErrorAlert className="mb-3" queries={[eligibilityQuery]} />
-                {eligibility && (
-                  <>
-                    <div className="mb-3 grid grid-cols-2 gap-2 text-xs">
-                      <div className="rounded border border-emerald-500/30 bg-emerald-500/10 p-2.5">
-                        <div className="text-[11px] text-emerald-300">Elegibles</div>
-                        <div className="font-mono text-lg font-bold text-emerald-200">
-                          {eligibility.eligible_units.length}
-                        </div>
-                      </div>
-                      <div className="rounded border border-rose-500/30 bg-rose-500/10 p-2.5">
-                        <div className="text-[11px] text-rose-300">Excluidas</div>
-                        <div className="font-mono text-lg font-bold text-rose-200">
-                          {eligibility.excluded_units.length}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="max-h-56 space-y-1.5 overflow-y-auto pr-1 text-[11px]">
-                      {eligibility.excluded_units.slice(0, 12).map((ex) => (
-                        <div
-                          key={ex.unit_id}
-                          className="rounded border border-slate-800 bg-slate-950/60 px-2.5 py-1.5"
-                        >
-                          <div className="flex items-center justify-between font-mono text-slate-300">
-                            <span>
-                              {ex.unit_id} ({ex.unit_type})
-                            </span>
-                            <span className="text-rose-400">EXCLUIDA</span>
-                          </div>
-                          <div className="mt-0.5 text-slate-500">
-                            {ex.reasons.join(" · ")}
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </>
-                )}
+                <EligibilityPanel eligibility={eligibility} />
               </div>
             </>
           )}
