@@ -6,7 +6,7 @@ import {
   CheckCircle2,
   Clock,
   ShieldAlert,
-  Sparkles,
+  ListOrdered,
   XCircle,
 } from "lucide-react";
 import { useRef, useState } from "react";
@@ -148,7 +148,7 @@ export function DecisionPanel({
           onClick={() => evalMutation.mutate(detail.service_id)}
           className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/60 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-300"
         >
-          <Sparkles className="h-3.5 w-3.5" />
+          <ListOrdered className="h-3.5 w-3.5" />
           {evalMutation.isPending
             ? "Evaluando…"
             : evaluated
@@ -444,7 +444,7 @@ function RejectOptions({
             aria-label={`${u.unit_id} ${u.unit_type}`}
             onClick={() => onSelect({ kind: "manual", unitId: u.unit_id })}
             className={cn(
-              "flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-xs",
+              "flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
               isManual(u.unit_id)
                 ? "border-cyan-400 bg-cyan-500/10"
                 : "border-slate-800 bg-slate-950/60",
@@ -463,7 +463,7 @@ function RejectOptions({
           aria-label="No asignar ninguna unidad"
           onClick={() => onSelect({ kind: "manual", unitId: null })}
           className={cn(
-            "w-full rounded border px-2.5 py-1.5 text-left text-xs text-slate-200",
+            "w-full rounded border px-2.5 py-1.5 text-left text-xs text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
             isManual(null)
               ? "border-cyan-400 bg-cyan-500/10"
               : "border-slate-800 bg-slate-950/60",

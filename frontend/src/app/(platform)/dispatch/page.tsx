@@ -68,7 +68,7 @@ export default function DispatchCenterPage() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold text-slate-50">Despacho</h1>
           <p className="text-sm text-slate-300">
@@ -90,8 +90,8 @@ export default function DispatchCenterPage() {
 
       <LastDecisionBanner />
 
-      <div className="grid grid-cols-12 gap-4">
-        <div className="col-span-3">
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+        <div className="lg:col-span-3">
           <RequestQueue
             requests={requestsQuery.data}
             isLoading={requestsQuery.isLoading}
@@ -100,7 +100,7 @@ export default function DispatchCenterPage() {
           />
         </div>
 
-        <section className="col-span-4 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
+        <section className="flex flex-col gap-4 lg:col-span-4 lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
           <QueryErrorAlert queries={[detailQuery]} />
           {!detail ? (
             <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
@@ -121,7 +121,7 @@ export default function DispatchCenterPage() {
           )}
         </section>
 
-        <section className="col-span-5 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
+        <section className="flex flex-col gap-4 lg:col-span-5 lg:h-[calc(100vh-11rem)] lg:overflow-y-auto lg:pr-1">
           <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
             <h2 className="mb-3 text-sm font-semibold text-slate-100">
               Recomendación

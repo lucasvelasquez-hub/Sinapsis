@@ -67,7 +67,7 @@ export function RequestQueue({
       : "Sin solicitudes con estos filtros";
 
   return (
-    <section className="flex h-[calc(100vh-11rem)] flex-col rounded-lg border border-slate-800 bg-slate-900/60">
+    <section className="flex max-h-[70vh] flex-col rounded-lg border border-slate-800 bg-slate-900/60 lg:h-[calc(100vh-11rem)] lg:max-h-none">
       <div className="space-y-2 border-b border-slate-800 p-3">
         <div className="flex items-center justify-between">
           <h2 className="text-sm font-semibold text-slate-100">

@@ -39,7 +39,7 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
 
       <p className="mt-3 text-sm text-slate-300">
         Objetivo de llegada{" "}
-        <span className="text-xl font-bold tabular-nums text-cyan-200">
+        <span className="text-xl font-bold tabular-nums text-slate-50">
           ≤ {context.target_response_min} min
         </span>
       </p>
