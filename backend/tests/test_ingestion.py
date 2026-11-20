@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.decision import RecommendationCandidate
@@ -148,3 +148,34 @@ def test_reload_resyncs_simulation(db: Session, frames: DatasetFrames) -> None:
     assert sim.current_sim_datetime == latest
     assert "MOV-001" in sim.active_assignments_json
     assert "UNIT-OLD" not in sim.active_assignments_json
+
+
+def _row_version(db: Session, table: str, key: str, value: str) -> str:
+    return db.execute(
+        text(f"SELECT xmin::text FROM {table} WHERE {key} = :v"), {"v": value}
+    ).scalar_one()
+
+
+def test_reload_does_not_rewrite_unchanged_rows(db: Session, frames: DatasetFrames) -> None:
+    """Sin cambios en el CSV no se reescribe (ni se bloquea) ninguna fila de unidades/servicios."""
+    before = (
+        _row_version(db, "raw.services", "service_id", "SRV-00010"),
+        _row_version(db, "raw.units", "unit_id", "MOV-001"),
+    )
+
+    load_dataset(db, frames)
+
+    after = (
+        _row_version(db, "raw.services", "service_id", "SRV-00010"),
+        _row_version(db, "raw.units", "unit_id", "MOV-001"),
+    )
+    assert after == before
+
+
+def test_reload_updates_changed_rows(db: Session, frames: DatasetFrames) -> None:
+    services = frames.services.copy()
+    services.loc[services["service_id"] == "SRV-00010", "zone_id"] = "COMUNA_02"
+
+    load_dataset(db, frames._replace(services=services))
+
+    assert db.get(RawService, "SRV-00010").zone_id == "COMUNA_02"

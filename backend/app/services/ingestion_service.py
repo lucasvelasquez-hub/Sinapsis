@@ -55,7 +55,10 @@ def _upsert(db: Session, model: type, rows: list[dict[str, Any]], key: str) -> N
     for batch in _batches(rows):
         stmt = insert(model).values(batch)
         updates = {c: stmt.excluded[c] for c in batch[0] if c != key}
-        db.execute(stmt.on_conflict_do_update(index_elements=[key], set_=updates))
+        # Solo las filas que cambian: una recarga sin cambios no reescribe ni bloquea filas
+        # (ni deja filas muertas) mientras la app sigue leyendo y decidiendo.
+        changed = or_(*(model.__table__.c[c].is_distinct_from(stmt.excluded[c]) for c in updates))
+        db.execute(stmt.on_conflict_do_update(index_elements=[key], set_=updates, where=changed))
 
 
 def _as_bool(value: Any) -> bool:
