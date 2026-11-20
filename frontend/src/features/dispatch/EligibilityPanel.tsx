@@ -9,8 +9,13 @@ import type { EligibilityEvaluation } from "@/types/core";
 /** Elegibles a la vista; excluidas (con su motivo) a un clic, salvo que no haya elegibles. */
 export function EligibilityPanel({
   eligibility,
+  status = "PENDING",
+  assignedUnitId = null,
 }: {
   eligibility: EligibilityEvaluation | undefined;
+  /** Estado de la solicitud: si ya no está pendiente se muestra la unidad que se asignó. */
+  status?: string;
+  assignedUnitId?: string | null;
 }) {
   const [showExcluded, setShowExcluded] = useState(false);
   if (!eligibility) return null;
@@ -18,6 +23,9 @@ export function EligibilityPanel({
   const { eligible_units: eligible, excluded_units: excluded } = eligibility;
   const noneEligible = eligible.length === 0;
   const excludedOpen = showExcluded || noneEligible;
+  const decided = status !== "PENDING";
+  const assignedEligible = eligible.find((u) => u.unit_id === assignedUnitId);
+  const assignedExcluded = excluded.find((u) => u.unit_id === assignedUnitId);
 
   return (
     <div className="space-y-3">
@@ -30,6 +38,31 @@ export function EligibilityPanel({
         </h3>
         <ProvenanceBadge type="SIMULADO" />
       </div>
+
+      {decided && (
+        <div className="rounded-md border border-slate-700 bg-slate-950/60 px-3 py-2 text-sm">
+          {assignedUnitId ? (
+            <>
+              <span className="text-slate-300">Unidad asignada: </span>
+              <span className="font-mono font-semibold text-slate-50">{assignedUnitId}</span>
+              {assignedEligible && (
+                <span className="text-slate-300">
+                  {" "}
+                  ({assignedEligible.unit_type}, {assignedEligible.base_id})
+                </span>
+              )}
+              {!assignedEligible && (
+                <p className="mt-1 text-xs text-amber-200">
+                  No estaba entre las elegibles al momento de la solicitud
+                  {assignedExcluded ? `: ${assignedExcluded.reasons.join("; ")}` : "."}
+                </p>
+              )}
+            </>
+          ) : (
+            <span className="text-slate-300">Rechazada sin asignar ninguna unidad.</span>
+          )}
+        </div>
+      )}
 
       {noneEligible ? (
         <p className="rounded-md border border-rose-400/50 bg-rose-500/10 p-2.5 text-sm text-rose-100">
@@ -47,8 +80,19 @@ export function EligibilityPanel({
           </thead>
           <tbody className="divide-y divide-slate-800/80">
             {eligible.map((u) => (
-              <tr key={u.unit_id}>
-                <td className="py-1.5 font-mono text-slate-50">{u.unit_id}</td>
+              <tr
+                key={u.unit_id}
+                aria-current={u.unit_id === assignedUnitId ? "true" : undefined}
+                className={u.unit_id === assignedUnitId ? "bg-cyan-500/10" : undefined}
+              >
+                <td className="py-1.5 font-mono text-slate-50">
+                  {u.unit_id}
+                  {u.unit_id === assignedUnitId && (
+                    <span className="ml-2 font-sans text-xs font-semibold text-cyan-200">
+                      Asignada
+                    </span>
+                  )}
+                </td>
                 <td className="py-1.5 text-slate-300">{u.unit_type}</td>
                 <td className="py-1.5 text-slate-300">{u.base_id}</td>
                 <td className="py-1.5 text-right tabular-nums text-slate-300">

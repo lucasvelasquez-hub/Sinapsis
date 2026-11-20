@@ -44,7 +44,7 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
         </span>
       </p>
 
-      <dl className="mt-3 grid grid-cols-3 gap-3 border-t border-slate-800 pt-3 text-xs">
+      <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)_auto] gap-x-5 gap-y-3 border-t border-slate-800 pt-3 text-xs">
         <div>
           <dt className="text-slate-400">Hora</dt>
           <dd className="mt-0.5 text-sm font-semibold tabular-nums text-slate-100">
@@ -52,7 +52,7 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
           </dd>
         </div>
         <div>
-          <dt className="flex items-center gap-1.5 text-slate-400">
+          <dt className="flex flex-wrap items-center gap-1.5 text-slate-400">
             Demanda <ProvenanceBadge type="CALCULADO" />
           </dt>
           <dd className="mt-0.5 text-sm tabular-nums text-slate-100">

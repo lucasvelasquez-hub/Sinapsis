@@ -115,7 +115,11 @@ export default function DispatchCenterPage() {
                   className="mb-3"
                   queries={[eligibilityQuery]}
                 />
-                <EligibilityPanel eligibility={eligibilityQuery.data} />
+                <EligibilityPanel
+                  eligibility={eligibilityQuery.data}
+                  status={detail.status}
+                  assignedUnitId={detail.assigned_unit_id}
+                />
               </div>
             </>
           )}

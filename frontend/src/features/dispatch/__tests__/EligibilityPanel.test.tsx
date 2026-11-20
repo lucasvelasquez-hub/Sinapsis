@@ -46,3 +46,47 @@ describe("EligibilityPanel", () => {
     expect(screen.getByText(/Ocupada hasta 01:11/)).toBeTruthy();
   });
 });
+
+describe("EligibilityPanel — solicitud ya decidida", () => {
+  it("a pending request shows no assigned unit", () => {
+    render(<EligibilityPanel eligibility={eligibility(["MOV-024"])} status="PENDING" assignedUnitId={null} />);
+
+    expect(screen.queryByText(/unidad asignada/i)).toBeNull();
+  });
+
+  it("a dispatched request highlights the assigned unit among the eligible ones", () => {
+    render(
+      <EligibilityPanel
+        eligibility={eligibility(["MOV-024", "MOV-012"])}
+        status="DISPATCHED"
+        assignedUnitId="MOV-012"
+      />
+    );
+
+    expect(screen.getByText(/unidad asignada/i).closest("div")!.textContent).toMatch(/MOV-012/);
+    const row = screen.getByRole("row", { name: /MOV-012/ });
+    expect(row.getAttribute("aria-current")).toBe("true");
+    expect(row.textContent).toMatch(/asignada/i);
+  });
+
+  it("an assigned unit outside the eligible list is still shown, with the reason", () => {
+    render(
+      <EligibilityPanel
+        eligibility={eligibility(["MOV-024"], [{ id: "MOV-008", reason: "Ocupada hasta 01:11" }])}
+        status="COMPLETED"
+        assignedUnitId="MOV-008"
+      />
+    );
+
+    const assigned = screen.getByText(/unidad asignada/i).closest("div")!;
+    expect(assigned.textContent).toMatch(/MOV-008/);
+    expect(assigned.textContent).toMatch(/no estaba entre las elegibles/i);
+    expect(assigned.textContent).toMatch(/Ocupada hasta 01:11/);
+  });
+
+  it("a request rejected without a unit says so", () => {
+    render(<EligibilityPanel eligibility={eligibility(["MOV-024"])} status="REJECTED" assignedUnitId={null} />);
+
+    expect(screen.getByText(/rechazada sin asignar/i)).toBeTruthy();
+  });
+});
