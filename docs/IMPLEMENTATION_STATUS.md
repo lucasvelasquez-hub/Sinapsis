@@ -43,6 +43,5 @@
   `decision.dispatch_decisions`), las FK hacen fallar ese borrado y la carga aborta sin cambios. Es
   intencional (la auditoría no se borra), pero deja el dataset de Supabase fijo. Si hay que cambiarlo:
   ingesta incremental (insertar/actualizar sin borrar lo referenciado), un proyecto o branch de Supabase
-  aparte para pruebas, o una migración específica que conserve la auditoría.
-- **Flujo evaluar/decidir no probado contra Supabase** (pooler 6543 con escrituras). Probado en local;
-  hacer una prueba manual cuando se autorice escribir en Supabase.
+  aparte para pruebas, o una migración específica que conserve la auditoría. **Activo desde 2026-11-20**:
+  Supabase ya tiene decisiones registradas (`desp-07` desde el front y `prueba-claude` en la prueba del flujo).
