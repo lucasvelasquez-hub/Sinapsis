@@ -48,7 +48,12 @@ export function DecisionPanel({
   });
 
   const decisionMutation = useMutation({
-    mutationFn: coreApi.recordDecision,
+    // Igual que la evaluación: se guarda aunque el panel se desmonte (la cola avanza sola).
+    mutationFn: async (payload: Parameters<typeof coreApi.recordDecision>[0]) => {
+      const decision = await coreApi.recordDecision(payload);
+      useDispatchStore.getState().setLastDecision(decision);
+      return decision;
+    },
     onSuccess: () => onDecided(),
     onError: (error) => {
       submitting.current = false;

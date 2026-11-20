@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-import type { RecommendationOut } from "@/types/core";
+import type { DecisionOut, RecommendationOut } from "@/types/core";
 
 export type QueueStatus = "PENDING" | "DISPATCHED" | "REJECTED" | "COMPLETED" | "";
 
@@ -25,11 +25,14 @@ interface DispatchState {
   recommendations: Record<string, RecommendationOut>;
   selection: Selection;
   rejecting: boolean;
+  /** Última decisión registrada: sigue visible aunque la cola pase a la siguiente pendiente. */
+  lastDecision: DecisionOut | null;
   setSelectedServiceId: (id: string | null) => void;
   setFilter: <K extends keyof QueueFilters>(key: K, value: QueueFilters[K]) => void;
   storeRecommendation: (rec: RecommendationOut) => void;
   select: (selection: Selection) => void;
   setRejecting: (on: boolean) => void;
+  setLastDecision: (decision: DecisionOut | null) => void;
 }
 
 const DEFAULT_FILTERS: QueueFilters = {
@@ -50,6 +53,7 @@ export const useDispatchStore = create<DispatchState>((set) => ({
   recommendations: {},
   selection: null,
   rejecting: false,
+  lastDecision: null,
   setSelectedServiceId: (id) => set({ selectedServiceId: id, selection: null, rejecting: false }),
   setFilter: (key, value) => set((s) => ({ filters: { ...s.filters, [key]: value } })),
   storeRecommendation: (rec) =>
@@ -57,4 +61,5 @@ export const useDispatchStore = create<DispatchState>((set) => ({
   select: (selection) =>
     set((s) => ({ selection: sameSelection(s.selection, selection) ? null : selection })),
   setRejecting: (on) => set({ rejecting: on, selection: null }),
+  setLastDecision: (decision) => set({ lastDecision: decision }),
 }));

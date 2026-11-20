@@ -95,6 +95,7 @@ describe("DecisionPanel", () => {
     expect(record.mock.calls[0][0]).toMatchObject({ assigned_unit_id: "MOV-024", accepted: true });
     expect(screen.queryAllByRole("button").filter((b) => !(b as HTMLButtonElement).disabled)).toHaveLength(0);
     expect(onDecided).toHaveBeenCalled();
+    expect(useDispatchStore.getState().lastDecision?.decision_id).toBe("D-1");
   });
 
   it("reject mode lists only other eligible units and needs a reason", async () => {
