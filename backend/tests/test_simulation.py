@@ -16,7 +16,7 @@ from app.services.simulation_service import (
     get_units_busy_until,
     historical_median_request_to_closure_min,
     mark_unit_assigned_in_simulation,
-    reset_simulation_session,
+    resync_simulation_session,
 )
 
 # Unidad sin servicios históricos en la ventana usada: aislamos la parte simulada.
@@ -185,15 +185,17 @@ def test_simulated_occupation_falls_back_without_history(db: Session) -> None:
     assert historical_median_request_to_closure_min(db, "TIPO_INEXISTENTE") == 45.0
 
 
-def test_reset_simulation_session_clears_previous_dataset_state(db: Session) -> None:
+def test_resync_simulation_keeps_current_units_and_moves_clock(db: Session) -> None:
     sim = get_or_create_simulation_session(db)
     sim.current_sim_datetime = datetime(2020, 1, 1)
-    sim.active_assignments_json = {"UNIT-01": [{"busy_until": "2020-01-01T10:00:00"}]}
+    sim.active_assignments_json = {
+        "MOV-001": [{"busy_until": "2026-10-30T01:00:00"}],
+        "UNIT-01": [{"busy_until": "2020-01-01T10:00:00"}],
+    }
     db.flush()
-    new_clock = datetime(2026, 10, 29, 23, 43)
+    latest = db.execute(select(func.max(RawService.request_datetime))).scalar_one()
 
-    reset = reset_simulation_session(db, new_clock)
+    synced = resync_simulation_session(db, ["MOV-001", "MOV-002"])
 
-    assert reset.session_id == "default"
-    assert reset.current_sim_datetime == new_clock
-    assert reset.active_assignments_json == {}
+    assert synced.current_sim_datetime == latest
+    assert list(synced.active_assignments_json) == ["MOV-001"]

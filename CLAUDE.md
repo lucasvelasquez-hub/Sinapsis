@@ -49,8 +49,8 @@ Arquitectura (7 nodos): `docs/architecture/overview.md`.
 # DB local (tests)
 docker compose up -d
 
-# Reiniciar la DB local desde cero. BORRA decisiones y auditoría locales: la re-ingesta
-# sobre una DB con decisiones falla a propósito (las FK protegen la auditoría).
+# Reiniciar la DB local desde cero. BORRA decisiones y auditoría locales. (Para solo recargar
+# el dataset no hace falta: la ingesta es incremental y conserva lo que la auditoría referencia.)
 # backend/.env apunta a Supabase: exportar la URL local para que alembic/ingesta NO toquen Supabase.
 docker compose down -v && docker compose up -d
 cd backend && export DATABASE_URL=postgresql+psycopg://core_user:core_password@localhost:5433/core_db \
@@ -103,7 +103,11 @@ Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T +
 **Datos**: `data/raw/` es inmutable: dataset sintético mínimo (servicios, unidades, reglas, objetivos;
 valores en español: `CRITICA`, `EMERGENCIA_MEDICA`, `COMUNA_05`, `TURNO_DIA`). Los CSV llevan BOM
 (`utf-8-sig`). Scripts en `scripts/`: `validate_dataset.py` (validación + informe de calidad) e
-`ingest_and_prepare.py` (aborta si el validador encuentra problemas). Los vocabularios los sirve
+`ingest_and_prepare.py` (aborta si el validador encuentra problemas; carga incremental vía
+`app/services/ingestion_service.py`: reglas y objetivos se reemplazan, unidades y servicios se
+actualizan por clave, lo que desaparece del CSV se borra salvo que lo referencien recomendaciones o
+decisiones, en cuyo caso el servicio se conserva tal cual y la unidad queda inactiva; las solicitudes
+simuladas no se tocan). Los vocabularios los sirve
 `GET /api/v1/catalog`; el front no mantiene listas propias.
 
 ## Supabase

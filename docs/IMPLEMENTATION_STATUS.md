@@ -37,11 +37,5 @@
 
 ## Pendientes técnicos
 
-- **Recarga del dataset en Supabase bloqueada tras el primer uso.** `scripts/ingest_and_prepare.py` borra
-  `raw.services`/`raw.units` antes de cargar, y la migración `10020845ba5b` también vacía `raw`. En cuanto
-  existan recomendaciones o decisiones que los referencian (`decision.recommendations`,
-  `decision.dispatch_decisions`), las FK hacen fallar ese borrado y la carga aborta sin cambios. Es
-  intencional (la auditoría no se borra), pero deja el dataset de Supabase fijo. Si hay que cambiarlo:
-  ingesta incremental (insertar/actualizar sin borrar lo referenciado), un proyecto o branch de Supabase
-  aparte para pruebas, o una migración específica que conserve la auditoría. **Activo desde 2026-11-20**:
-  Supabase ya tiene decisiones registradas (`desp-07` desde el front y `prueba-claude` en la prueba del flujo).
+- Sin pendientes técnicos abiertos. (La recarga del dataset con decisiones registradas se resolvió con
+  la carga incremental de `app/services/ingestion_service.py`.)

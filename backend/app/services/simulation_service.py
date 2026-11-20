@@ -42,14 +42,23 @@ def get_or_create_simulation_session(db: Session) -> SimulationSession:
     return session
 
 
-def reset_simulation_session(db: Session, clock: datetime) -> SimulationSession:
-    """Start the simulation over after (re)loading a dataset: clock at `clock`, no assignments.
+def resync_simulation_session(db: Session, unit_ids: Collection[str]) -> SimulationSession:
+    """Align the simulation with a (re)loaded dataset.
 
-    Without this a re-ingestion keeps the previous dataset's clock and occupations.
+    Clock at the latest request (synthetic ones included, so it never goes back before a
+    simulated request). Occupations of units that no longer exist are dropped; those of
+    current units (live simulated decisions) are kept.
     """
     sim = get_or_create_simulation_session(db)
-    sim.current_sim_datetime = clock
-    sim.active_assignments_json = {}
+    latest = db.execute(select(func.max(RawService.request_datetime))).scalar_one_or_none()
+    if latest is not None:
+        sim.current_sim_datetime = latest
+    known = set(unit_ids)
+    sim.active_assignments_json = {
+        unit_id: entries
+        for unit_id, entries in (sim.active_assignments_json or {}).items()
+        if unit_id in known
+    }
     sim.updated_at = utcnow()
     db.flush()
     return sim
