@@ -1,5 +1,6 @@
 import type {
   AnalyticsDemand,
+  Catalog,
   AnalyticsOverview,
   DecisionOut,
   EligibilityEvaluation,
@@ -58,6 +59,8 @@ export async function apiFetch<T>(path: string, init?: RequestInit): Promise<T> 
 
 export const coreApi = {
   getHealth: () => apiFetch<HealthResponse>("/health"),
+
+  getCatalog: () => apiFetch<Catalog>("/catalog"),
 
   listRequests: (params?: {
     urgency_level?: string;

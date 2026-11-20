@@ -1,11 +1,20 @@
-export type UrgencyLevel = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+/** Vocabularios del dataset: vienen de GET /catalog, no de listas fijas en el front. */
+export type UrgencyLevel = string;
+export type ServiceType = string;
 
-export type ServiceType =
-  | "MEDICAL_CRITICAL"
-  | "TRAUMA_RESCUE"
-  | "MEDICAL_URGENT"
-  | "TRANSFER_ASSISTED"
-  | "CRISIS_INTERVENTION";
+export interface CatalogUrgency {
+  code: UrgencyLevel;
+  target_response_min: number;
+}
+
+export interface Catalog {
+  /** De mayor a menor urgencia (menor objetivo primero). */
+  urgencies: CatalogUrgency[];
+  service_types: ServiceType[];
+  zones: string[];
+  unit_types: string[];
+  shifts: string[];
+}
 
 export interface RequestSummary {
   service_id: string;
@@ -25,8 +34,6 @@ export interface RequestContext {
   is_weekend: boolean;
   is_peak_hour: boolean;
   target_response_min: number;
-  max_acceptable_min: number;
-  sla_label: string;
   zone_demand_4h: number;
   zone_demand_8h: number;
   zone_demand_12h: number;
@@ -34,16 +41,17 @@ export interface RequestContext {
 }
 
 export interface RequestDetail extends RequestSummary {
+  assignment_datetime: string | null;
+  arrival_datetime: string | null;
+  closure_datetime: string | null;
   service_duration_min: number | null;
-  completion_datetime: string | null;
   context: RequestContext;
 }
 
 export interface UnitStatus {
   unit_id: string;
-  unit_code: string;
   unit_type: string;
-  base_zone_id: string;
+  base_id: string;
   shift: string;
   capacity: number;
   active: boolean;
@@ -63,7 +71,6 @@ export type ExclusionCode =
 
 export interface ExclusionReason {
   unit_id: string;
-  unit_code: string;
   unit_type: string;
   /** Códigos estructurados, alineados con `reasons`. */
   reason_codes: ExclusionCode[];
@@ -79,9 +86,8 @@ export interface EligibilityEvaluation {
 
 export interface RecommendationCandidate {
   unit_id: string;
-  unit_code: string;
   unit_type: string;
-  base_zone_id: string;
+  base_id: string;
   shift: string;
   rank: number;
   score: number;

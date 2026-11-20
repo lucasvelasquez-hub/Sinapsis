@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 
 import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
+import { useCatalog } from "@/features/catalog/useCatalog";
 import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import { ApiError, coreApi } from "@/lib/api";
@@ -22,10 +23,10 @@ import { useDispatchStore } from "@/stores/dispatchStore";
 import { normalizeDispatcherId, useDispatcherStore } from "@/stores/dispatcherStore";
 
 const URGENCY_BADGE: Record<string, string> = {
-  CRITICAL: "border-rose-500/50 bg-rose-500/15 text-rose-300",
-  HIGH: "border-amber-500/50 bg-amber-500/15 text-amber-300",
-  MEDIUM: "border-sky-500/50 bg-sky-500/15 text-sky-300",
-  LOW: "border-slate-600 bg-slate-800 text-slate-300",
+  CRITICA: "border-rose-500/50 bg-rose-500/15 text-rose-300",
+  ALTA: "border-amber-500/50 bg-amber-500/15 text-amber-300",
+  MEDIA: "border-sky-500/50 bg-sky-500/15 text-sky-300",
+  BAJA: "border-slate-600 bg-slate-800 text-slate-300",
 };
 
 export default function DispatchCenterPage() {
@@ -46,6 +47,8 @@ export default function DispatchCenterPage() {
   } = useDispatchStore();
   // Toda decisión queda firmada por quien la toma (invariante: decisión humana registrada).
   const dispatcherId = normalizeDispatcherId(useDispatcherStore((s) => s.dispatcherId));
+
+  const catalogQuery = useCatalog();
 
   const requestsQuery = useQuery({
     queryKey: ["requests", urgencyFilter, zoneFilter],
@@ -162,10 +165,11 @@ export default function DispatchCenterPage() {
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
               >
                 <option value="">Todas Urg.</option>
-                <option value="CRITICAL">CRITICAL</option>
-                <option value="HIGH">HIGH</option>
-                <option value="MEDIUM">MEDIUM</option>
-                <option value="LOW">LOW</option>
+                {catalogQuery.data?.urgencies.map((u) => (
+                  <option key={u.code} value={u.code}>
+                    {u.code}
+                  </option>
+                ))}
               </select>
               <select
                 value={zoneFilter}
@@ -173,9 +177,9 @@ export default function DispatchCenterPage() {
                 className="rounded border border-slate-700 bg-slate-950 px-2 py-1 text-xs text-slate-200"
               >
                 <option value="">Todas Zonas</option>
-                {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                  <option key={n} value={`ZONE-0${n}`}>
-                    ZONE-0{n}
+                {catalogQuery.data?.zones.map((z) => (
+                  <option key={z} value={z}>
+                    {z}
                   </option>
                 ))}
               </select>
@@ -186,7 +190,7 @@ export default function DispatchCenterPage() {
             {requestsQuery.isLoading && (
               <div className="p-4 text-xs text-slate-400">Cargando solicitudes...</div>
             )}
-            <QueryErrorAlert className="m-3" queries={[requestsQuery]} />
+            <QueryErrorAlert className="m-3" queries={[requestsQuery, catalogQuery]} />
             {requestsQuery.data?.map((req) => {
               const selected = req.service_id === selectedServiceId;
               return (
@@ -343,7 +347,7 @@ export default function DispatchCenterPage() {
                         >
                           <div className="flex items-center justify-between font-mono text-slate-300">
                             <span>
-                              {ex.unit_code} ({ex.unit_type})
+                              {ex.unit_id} ({ex.unit_type})
                             </span>
                             <span className="text-rose-400">EXCLUIDA</span>
                           </div>
@@ -427,10 +431,10 @@ export default function DispatchCenterPage() {
                             #{cand.rank}
                           </span>
                           <span className="font-mono text-sm font-bold text-white">
-                            {cand.unit_code}
+                            {cand.unit_id}
                           </span>
                           <span className="text-xs text-slate-400">
-                            {cand.unit_type} · {cand.base_zone_id}
+                            {cand.unit_type} · {cand.base_id}
                           </span>
                         </div>
                         <div className="mt-1 flex items-center gap-2 text-[11px] text-slate-400">
@@ -502,7 +506,7 @@ export default function DispatchCenterPage() {
                             rejection_reason:
                               cand.rank === 1
                                 ? null
-                                : `Operador seleccionó alternativa #${cand.rank} (${cand.unit_code})`,
+                                : `Operador seleccionó alternativa #${cand.rank} (${cand.unit_id})`,
                           })
                         }
                         className={cn(

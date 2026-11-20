@@ -6,20 +6,16 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { X } from "lucide-react";
 
-import { ErrorAlert } from "@/components/ErrorAlert";
+import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
+import { urgencyLabel, useCatalog } from "@/features/catalog/useCatalog";
 import { coreApi } from "@/lib/api";
 import { useDispatchStore } from "@/stores/dispatchStore";
 
+// Los valores salen del catálogo (selects); el backend vuelve a validarlos contra la DB.
 const schema = z.object({
-  urgency_level: z.enum(["CRITICAL", "HIGH", "MEDIUM", "LOW"]),
-  service_type: z.enum([
-    "MEDICAL_CRITICAL",
-    "TRAUMA_RESCUE",
-    "MEDICAL_URGENT",
-    "TRANSFER_ASSISTED",
-    "CRISIS_INTERVENTION",
-  ]),
-  zone_id: z.string().regex(/^ZONE-0[1-8]$/),
+  urgency_level: z.string().min(1, "Selecciona una urgencia"),
+  service_type: z.string().min(1, "Selecciona un tipo de servicio"),
+  zone_id: z.string().min(1, "Selecciona una zona"),
 });
 
 type FormValues = z.infer<typeof schema>;
@@ -33,6 +29,8 @@ export function SimulateRequestModal({
 }) {
   const queryClient = useQueryClient();
   const setSelectedServiceId = useDispatchStore((s) => s.setSelectedServiceId);
+  const catalogQuery = useCatalog();
+  const catalog = catalogQuery.data;
 
   const {
     register,
@@ -40,11 +38,7 @@ export function SimulateRequestModal({
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
-    defaultValues: {
-      urgency_level: "CRITICAL",
-      service_type: "MEDICAL_CRITICAL",
-      zone_id: "ZONE-01",
-    },
+    defaultValues: { urgency_level: "", service_type: "", zone_id: "" },
   });
 
   const mutation = useMutation({
@@ -75,6 +69,8 @@ export function SimulateRequestModal({
           </button>
         </div>
 
+        <QueryErrorAlert className="mb-3" queries={[catalogQuery]} />
+
         <form
           onSubmit={handleSubmit((vals) => mutation.mutate(vals))}
           className="space-y-4"
@@ -87,10 +83,12 @@ export function SimulateRequestModal({
               {...register("urgency_level")}
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
-              <option value="CRITICAL">CRITICAL (SLA 8 min)</option>
-              <option value="HIGH">HIGH (SLA 15 min)</option>
-              <option value="MEDIUM">MEDIUM (SLA 30 min)</option>
-              <option value="LOW">LOW (SLA 60 min)</option>
+              <option value="">Selecciona…</option>
+              {catalog?.urgencies.map((u) => (
+                <option key={u.code} value={u.code}>
+                  {urgencyLabel(u)}
+                </option>
+              ))}
             </select>
             {errors.urgency_level && (
               <p className="mt-1 text-xs text-rose-400">
@@ -107,12 +105,16 @@ export function SimulateRequestModal({
               {...register("service_type")}
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
-              <option value="MEDICAL_CRITICAL">MEDICAL_CRITICAL</option>
-              <option value="TRAUMA_RESCUE">TRAUMA_RESCUE</option>
-              <option value="MEDICAL_URGENT">MEDICAL_URGENT</option>
-              <option value="TRANSFER_ASSISTED">TRANSFER_ASSISTED</option>
-              <option value="CRISIS_INTERVENTION">CRISIS_INTERVENTION</option>
+              <option value="">Selecciona…</option>
+              {catalog?.service_types.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
             </select>
+            {errors.service_type && (
+              <p className="mt-1 text-xs text-rose-400">{errors.service_type.message}</p>
+            )}
           </div>
 
           <div>
@@ -123,19 +125,17 @@ export function SimulateRequestModal({
               {...register("zone_id")}
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
-              {[1, 2, 3, 4, 5, 6, 7, 8].map((n) => (
-                <option key={n} value={`ZONE-0${n}`}>
-                  ZONE-0{n}
+              <option value="">Selecciona…</option>
+              {catalog?.zones.map((z) => (
+                <option key={z} value={z}>
+                  {z}
                 </option>
               ))}
             </select>
+            {errors.zone_id && (
+              <p className="mt-1 text-xs text-rose-400">{errors.zone_id.message}</p>
+            )}
           </div>
-
-          {mutation.isError && (
-            <div className="rounded border border-rose-500/40 bg-rose-500/10 p-2.5 text-xs text-rose-300">
-              {(mutation.error as Error).message}
-            </div>
-          )}
 
           <div className="flex justify-end gap-2 pt-2">
             <button
@@ -147,7 +147,7 @@ export function SimulateRequestModal({
             </button>
             <button
               type="submit"
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || !catalog}
               className="rounded-md bg-cyan-600 px-4 py-2 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
             >
               {mutation.isPending ? "Creando..." : "Crear Solicitud"}

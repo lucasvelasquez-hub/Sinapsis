@@ -42,7 +42,6 @@ export default function FleetManagementPage() {
             <thead className="border-b border-slate-800 text-slate-400">
               <tr>
                 <th className="py-2 pr-4">Unit ID</th>
-                <th className="py-2 pr-4">Código</th>
                 <th className="py-2 pr-4">Tipo</th>
                 <th className="py-2 pr-4">Base</th>
                 <th className="py-2 pr-4">Turno</th>
@@ -55,9 +54,8 @@ export default function FleetManagementPage() {
               {units.map((u) => (
                 <tr key={u.unit_id} className="hover:bg-slate-800/40">
                   <td className="py-2 pr-4 font-mono text-white">{u.unit_id}</td>
-                  <td className="py-2 pr-4 font-mono text-cyan-300">{u.unit_code}</td>
                   <td className="py-2 pr-4 font-mono">{u.unit_type}</td>
-                  <td className="py-2 pr-4 font-mono">{u.base_zone_id}</td>
+                  <td className="py-2 pr-4 font-mono">{u.base_id}</td>
                   <td className="py-2 pr-4 font-mono text-slate-300">{u.shift}</td>
                   <td className="py-2 pr-4 font-mono">{u.capacity}</td>
                   <td className="py-2 pr-4 font-mono text-slate-300">
