@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from pathlib import Path
 import sys
+from datetime import UTC, datetime
+from pathlib import Path
 
 import pandas as pd
 from sqlalchemy import delete
@@ -17,22 +17,27 @@ from app.models.core import ScoringConfig, SimulationSession  # noqa: E402
 from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit  # noqa: E402
 from app.services.feature_service import compute_chronological_features  # noqa: E402
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from validate_dataset import load_services, read_csv, validate  # noqa: E402
+
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT_DIR / "data" / "raw"
 PROCESSED_DIR = ROOT_DIR / "data" / "processed"
 
 
 def main() -> None:
-    targets_df = pd.read_csv(RAW_DIR / "response_targets.csv")
-    rules_df = pd.read_csv(RAW_DIR / "service_rules.csv")
-    units_df = pd.read_csv(RAW_DIR / "units.csv")
-    services_df = pd.read_csv(RAW_DIR / "services.csv")
+    problems = validate(RAW_DIR)
+    if problems:
+        raise SystemExit("Dataset inválido, no se ingiere:\n- " + "\n- ".join(problems))
 
-    services_df["request_datetime"] = pd.to_datetime(services_df["request_datetime"], format="ISO8601")
-    services_df["completion_datetime"] = pd.to_datetime(services_df["completion_datetime"], format="ISO8601")
+    targets_df = read_csv(RAW_DIR, "response_targets.csv")
+    rules_df = read_csv(RAW_DIR, "service_rules.csv")
+    units_df = read_csv(RAW_DIR, "units.csv")
+    services_df = load_services(RAW_DIR)
 
     with SessionLocal() as db:
-        # Clear raw tables idempotently before bulk load
+        # Idempotente. Sin CASCADE: si hay decisiones o recomendaciones que referencian estos
+        # servicios, el DELETE falla a propósito (las FK protegen la auditoría).
         db.execute(delete(RawService))
         db.execute(delete(RawUnit))
         db.execute(delete(RawServiceRule))
@@ -42,65 +47,56 @@ def main() -> None:
             [
                 RawResponseTarget(
                     urgency_level=str(r.urgency_level),
-                    target_response_min=int(r.target_response_min),
-                    max_acceptable_min=int(r.max_acceptable_min),
-                    sla_label=str(r.sla_label),
-                    description=str(r.description),
+                    target_response_min=int(r.target_response_minutes),
                 )
                 for r in targets_df.itertuples(index=False)
             ]
         )
-
         db.bulk_save_objects(
             [
                 RawServiceRule(
-                    rule_id=str(r.rule_id),
                     service_type=str(r.service_type),
                     unit_type=str(r.unit_type),
-                    compatible=str(r.compatible).lower() == "true",
-                    priority_rank=int(r.priority_rank),
-                    min_capacity=int(r.min_capacity),
-                    notes=str(r.notes),
+                    eligible=str(r.eligible).lower() == "true",
                 )
                 for r in rules_df.itertuples(index=False)
             ]
         )
-
         db.bulk_save_objects(
             [
                 RawUnit(
                     unit_id=str(r.unit_id),
-                    unit_code=str(r.unit_code),
                     unit_type=str(r.unit_type),
-                    base_zone_id=str(r.base_zone_id),
+                    base_id=str(r.base_id),
                     shift=str(r.shift),
                     capacity=int(r.capacity),
-                    active=str(r.active).lower() == "true",
+                    cost_per_km=float(r.cost_per_km),
+                    active=True,
                 )
                 for r in units_df.itertuples(index=False)
             ]
         )
-
+        db.flush()
         db.bulk_save_objects(
             [
                 RawService(
                     service_id=str(r.service_id),
                     request_datetime=r.request_datetime.to_pydatetime(),
+                    assignment_datetime=r.assignment_datetime.to_pydatetime(),
+                    arrival_datetime=r.arrival_datetime.to_pydatetime(),
+                    closure_datetime=r.closure_datetime.to_pydatetime(),
                     urgency_level=str(r.urgency_level),
                     service_type=str(r.service_type),
                     zone_id=str(r.zone_id),
                     assigned_unit_id=str(r.assigned_unit_id),
-                    response_time_min=float(r.response_time_min),
-                    service_duration_min=float(r.service_duration_min),
-                    completion_datetime=r.completion_datetime.to_pydatetime(),
-                    status=str(r.status),
+                    status="COMPLETED",
                     is_synthetic=False,
                 )
                 for r in services_df.itertuples(index=False)
             ]
         )
 
-        now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
+        now_utc = datetime.now(UTC).replace(tzinfo=None)
 
         # Default MCDM Scoring Config
         if db.get(ScoringConfig, "default") is None:
@@ -133,7 +129,10 @@ def main() -> None:
         db.commit()
 
         count = compute_chronological_features(db)
-        print(f"Ingested 10,000 services, 30 units, 15 rules, 4 targets. Computed {count} service_features.")
+        print(
+            f"Ingeridos {len(services_df)} servicios, {len(units_df)} unidades, "
+            f"{len(rules_df)} reglas, {len(targets_df)} objetivos. {count} service_features."
+        )
 
         # Export processed snapshot for ML reproducibility
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)

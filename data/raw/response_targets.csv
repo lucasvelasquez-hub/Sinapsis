@@ -1,5 +1,5 @@
-urgency_level,target_response_min,max_acceptable_min,sla_label,description
-CRITICAL,8,12,P1 - Crítico,Emergencia con riesgo vital inmediato
-HIGH,15,22,P2 - Alto,Urgencia alta que requiere atención prioritaria
-MEDIUM,30,45,P3 - Medio,Atención médica o traslado programado prioritario
-LOW,60,90,P4 - Bajo,Solicitud de baja complejidad o traslado diferible
+﻿urgency_level,target_response_minutes
+CRITICA,8
+ALTA,15
+MEDIA,30
+BAJA,60

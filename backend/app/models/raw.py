@@ -1,9 +1,22 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    Computed,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
+
+
+def _minutes_between(start: str, end: str) -> str:
+    return f"(EXTRACT(EPOCH FROM ({end} - {start})) / 60.0)::double precision"
 
 
 class RawService(Base):
@@ -14,7 +27,7 @@ class RawService(Base):
             name="ck_services_status",
         ),
         CheckConstraint(
-            "urgency_level IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')", name="ck_services_urgency"
+            "urgency_level IN ('CRITICA', 'ALTA', 'MEDIA', 'BAJA')", name="ck_services_urgency"
         ),
         {"schema": "raw"},
     )
@@ -27,9 +40,20 @@ class RawService(Base):
     assigned_unit_id: Mapped[str | None] = mapped_column(
         String(16), ForeignKey("raw.units.unit_id"), index=True, nullable=True
     )
-    response_time_min: Mapped[float | None] = mapped_column(Float, nullable=True)
-    service_duration_min: Mapped[float | None] = mapped_column(Float, nullable=True)
-    completion_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Timestamps de origen. NULL en una solicitud simulada que aún no se ha atendido.
+    assignment_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    arrival_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    closure_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Derivados, calculados por Postgres (solo lectura): una sola definición de cada tiempo.
+    response_time_min: Mapped[float | None] = mapped_column(
+        Float, Computed(_minutes_between("request_datetime", "arrival_datetime"), persisted=True)
+    )
+    service_duration_min: Mapped[float | None] = mapped_column(
+        Float, Computed(_minutes_between("arrival_datetime", "closure_datetime"), persisted=True)
+    )
+    occupation_min: Mapped[float | None] = mapped_column(
+        Float, Computed(_minutes_between("assignment_datetime", "closure_datetime"), persisted=True)
+    )
     status: Mapped[str] = mapped_column(String(24), default="COMPLETED", nullable=False)
     is_synthetic: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
@@ -39,11 +63,13 @@ class RawUnit(Base):
     __table_args__ = {"schema": "raw"}
 
     unit_id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    unit_code: Mapped[str] = mapped_column(String(24), unique=True, nullable=False)
     unit_type: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
-    base_zone_id: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    base_id: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     shift: Mapped[str] = mapped_column(String(16), nullable=False)
     capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Se guarda tal cual el dataset; la recomendación no usa coste (opción A del diseño).
+    cost_per_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # El dataset no lo trae: interruptor operativo, activo por defecto.
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
 
 
@@ -51,13 +77,9 @@ class RawServiceRule(Base):
     __tablename__ = "service_rules"
     __table_args__ = {"schema": "raw"}
 
-    rule_id: Mapped[str] = mapped_column(String(16), primary_key=True)
-    service_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
-    unit_type: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
-    compatible: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
-    priority_rank: Mapped[int] = mapped_column(Integer, nullable=False)
-    min_capacity: Mapped[int] = mapped_column(Integer, nullable=False)
-    notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    service_type: Mapped[str] = mapped_column(String(32), primary_key=True)
+    unit_type: Mapped[str] = mapped_column(String(16), primary_key=True)
+    eligible: Mapped[bool] = mapped_column(Boolean, nullable=False)
 
 
 class RawResponseTarget(Base):
@@ -66,6 +88,3 @@ class RawResponseTarget(Base):
 
     urgency_level: Mapped[str] = mapped_column(String(16), primary_key=True)
     target_response_min: Mapped[int] = mapped_column(Integer, nullable=False)
-    max_acceptable_min: Mapped[int] = mapped_column(Integer, nullable=False)
-    sla_label: Mapped[str] = mapped_column(String(32), nullable=False)
-    description: Mapped[str] = mapped_column(Text, default="", nullable=False)

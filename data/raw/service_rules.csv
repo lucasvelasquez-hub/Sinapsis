@@ -1,16 +1,16 @@
-rule_id,service_type,unit_type,compatible,priority_rank,min_capacity,notes
-RULE-01,MEDICAL_CRITICAL,ALS,true,1,2,Soporte vital avanzado requerido para casos críticos
-RULE-02,MEDICAL_CRITICAL,RAPID,true,2,1,Unidad rápida de estabilización inicial
-RULE-03,MEDICAL_CRITICAL,RESCUE,true,3,2,Respaldo de rescate con soporte médico
-RULE-04,TRAUMA_RESCUE,RESCUE,true,1,2,Unidad principal de trauma y extricación
-RULE-05,TRAUMA_RESCUE,ALS,true,2,2,Soporte vital avanzado para trauma severo
-RULE-06,TRAUMA_RESCUE,RAPID,true,3,1,Primera respuesta rápida en trauma
-RULE-07,MEDICAL_URGENT,BLS,true,1,1,Soporte vital básico para urgencias médicas
-RULE-08,MEDICAL_URGENT,ALS,true,2,1,Soporte avanzado disponible para urgencias
-RULE-09,MEDICAL_URGENT,RAPID,true,3,1,Evaluación rápida en sitio
-RULE-10,TRANSFER_ASSISTED,BLS,true,1,1,Traslado asistido estándar
-RULE-11,TRANSFER_ASSISTED,ALS,true,2,1,Traslado asistido con monitoreo
-RULE-12,TRANSFER_ASSISTED,CRISIS,true,3,1,Traslado especializado de contención
-RULE-13,CRISIS_INTERVENTION,CRISIS,true,1,1,Equipo especializado en intervención en crisis
-RULE-14,CRISIS_INTERVENTION,RAPID,true,2,1,Contención inicial rápida
-RULE-15,CRISIS_INTERVENTION,BLS,true,3,1,Apoyo básico en crisis
+﻿service_type,unit_type,eligible
+EMERGENCIA_MEDICA,BASICA,True
+EMERGENCIA_MEDICA,MEDICALIZADA,True
+EMERGENCIA_MEDICA,AVANZADA,True
+TRASLADO_ASISTENCIAL,BASICA,True
+TRASLADO_ASISTENCIAL,MEDICALIZADA,True
+TRASLADO_ASISTENCIAL,AVANZADA,True
+TRASLADO_PROGRAMADO,BASICA,True
+TRASLADO_PROGRAMADO,MEDICALIZADA,True
+TRASLADO_PROGRAMADO,AVANZADA,True
+ATENCION_DOMICILIARIA,BASICA,True
+ATENCION_DOMICILIARIA,MEDICALIZADA,True
+ATENCION_DOMICILIARIA,AVANZADA,True
+EVENTO_ESPECIAL,BASICA,False
+EVENTO_ESPECIAL,MEDICALIZADA,True
+EVENTO_ESPECIAL,AVANZADA,True
