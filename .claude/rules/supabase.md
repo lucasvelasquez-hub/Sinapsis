@@ -38,8 +38,13 @@ paths:
 
 ## Conexión
 
-- App: pooler en modo transacción (6543) con `prepare_threshold=None` (ya en `app/core/database.py`).
-- Migraciones: conexión directa o pooler en modo sesión (5432).
+- App: pooler en modo transacción (6543) como rol `core_app` (`scripts/provision_app_role.py`), con
+  `prepare_threshold=None` (ya en `app/core/database.py`). Los timeouts viven en el rol: el pooler ignora
+  los que se pasan al conectar y un `SET LOCAL` por transacción cuesta un viaje de red.
+- Migraciones: como `postgres`, conexión directa o pooler en modo sesión (5432). `alembic/env.py` fija
+  `SET LOCAL lock_timeout = '5s'`: una migración no debe quedar en cola congelando la app.
+- Una tabla nueva hereda permisos para `core_app` por schema (`raw`/`analytics` CRUD; `decision`/`core`
+  SELECT+INSERT). Si necesita más, re-ejecutar `provision_app_role.py` tras ajustarlo.
 - Las credenciales viven solo en `backend/.env` (gitignored). Nunca en código, docs, `.mcp.json` ni commits.
 
 ## Datos

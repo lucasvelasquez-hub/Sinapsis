@@ -125,9 +125,20 @@ simuladas no se tocan). Los vocabularios los sirve
   El plugin de Supabase (`mcp__plugin_supabase_supabase__*`) NO está limitado al proyecto: sus tools
   destructivas están en `deny` de `.claude/settings.json`.
 - Conexión (`backend/.env`, ver `.env.example`):
-  - `DATABASE_URL` → pooler en modo transacción (6543). `database.py` desactiva los prepared
-    statements (`prepare_threshold=None`) porque el pooler no los soporta: no quitarlo.
-  - `DATABASE_URL_MIGRATIONS` → conexión directa o pooler en modo sesión (5432), para Alembic.
+  - `DATABASE_URL` → pooler en modo transacción (6543) con el rol **`core_app`** (usuario
+    `core_app.riajvipcxkgljtncqcwj`). `database.py` desactiva los prepared statements
+    (`prepare_threshold=None`) porque el pooler no los soporta: no quitarlo.
+  - `DATABASE_URL_MIGRATIONS` → como `postgres`, conexión directa o pooler en modo sesión (5432), para
+    Alembic y para `scripts/provision_app_role.py`.
+- Rol `core_app` (`scripts/provision_app_role.py`, idempotente; re-ejecutarlo rota la contraseña):
+  `lock_timeout` 5 s, `statement_timeout` 30 s, `idle_in_transaction_session_timeout` 60 s (el pooler
+  ignora los timeouts pasados al conectar: van en el rol). Sin DDL; `raw`/`analytics` lectura-escritura;
+  `decision`/`core` solo SELECT+INSERT salvo UPDATE en `scoring_config` y `simulation_sessions`:
+  **la auditoría (`dispatch_decisions`, `audit_events`) es solo-inserción a nivel de base**. Las tablas
+  que creen migraciones futuras heredan esos permisos por schema (default privileges).
+- Concurrencia: decidir bloquea la fila del servicio y luego la de la simulación (`FOR UPDATE` +
+  `populate_existing`); avanzar el reloj bloquea la simulación. Orden servicio → simulación siempre.
+  Las migraciones fijan `SET LOCAL lock_timeout = '5s'` (en `alembic/env.py`).
 - Si algún día el frontend tuviera que leer Supabase directo: exponer el schema y añadir RLS antes.
   Hoy no aplica.
 
