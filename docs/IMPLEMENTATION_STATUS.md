@@ -33,7 +33,7 @@
 ## Decisiones Técnicas y Limitaciones
 - Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
 - El tiempo esperado es contextual histórico/ML, nunca ETA individual por GPS.
-- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `10020845ba5b`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
+- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `ef22a023e97b`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
 
 ## Pendientes técnicos
 
@@ -44,7 +44,5 @@
   intencional (la auditoría no se borra), pero deja el dataset de Supabase fijo. Si hay que cambiarlo:
   ingesta incremental (insertar/actualizar sin borrar lo referenciado), un proyecto o branch de Supabase
   aparte para pruebas, o una migración específica que conserve la auditoría.
-- **Migración `ef22a023e97b` (índice de carga por unidad) sin aplicar en Supabase.** Aplicada en local.
-  Supabase sigue en `10020845ba5b`; la app funciona igual sin el índice.
 - **Flujo evaluar/decidir no probado contra Supabase** (pooler 6543 con escrituras). Probado en local;
   hacer una prueba manual cuando se autorice escribir en Supabase.
