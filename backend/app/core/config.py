@@ -7,9 +7,10 @@ class Settings(BaseSettings):
     app_name: str = "CORE API"
     app_version: str = "1.0.0"
     environment: str = "development"
-    debug: bool = True
     log_level: str = "INFO"
 
+    # Default = Docker local de docker-compose.yml (credenciales de desarrollo, no secretas).
+    # Fuera de local se define siempre por entorno / backend/.env.
     database_url: str = "postgresql+psycopg://core_user:core_password@localhost:5433/core_db"
     # Alembic: Supabase direct or session-pooler (5432). Falls back to database_url.
     database_url_migrations: str | None = None
