@@ -1,4 +1,3 @@
-from app.services.eligibility_service import shift_covers_hour
 from app.services.scoring_service import (
     compute_mcdm_score,
     compute_raw_workload_index,
@@ -21,13 +20,3 @@ def test_compute_mcdm_score_default_weights() -> None:
 
 def test_compute_raw_workload_index() -> None:
     assert compute_raw_workload_index(2, 4, 6) == 0.5 * 2 + 0.3 * 4 + 0.2 * 6
-
-
-def test_shift_covers_hour() -> None:
-    assert shift_covers_hour("FULL_24H", 3) is True
-    assert shift_covers_hour("MORNING", 8) is True
-    assert shift_covers_hour("MORNING", 15) is False
-    assert shift_covers_hour("AFTERNOON", 18) is True
-    assert shift_covers_hour("NIGHT", 23) is True
-    assert shift_covers_hour("NIGHT", 2) is True
-    assert shift_covers_hour("NIGHT", 12) is False

@@ -1,0 +1,105 @@
+"""Reglas de dominio puras y consistencia entre entrenamiento y servicio."""
+
+from datetime import datetime
+
+import pytest
+from app.domain.temporal import shift_covers_hour, temporal_context, window_counts
+from app.ml.features import FEATURE_COLUMNS, build_feature_frame
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+REF = datetime(2026, 10, 30, 12, 0)  # viernes
+
+
+@pytest.mark.parametrize(
+    ("dt", "is_weekend", "is_peak"),
+    [
+        (datetime(2026, 10, 30, 7, 0), False, True),
+        (datetime(2026, 10, 30, 10, 59), False, True),
+        (datetime(2026, 10, 30, 11, 0), False, False),
+        (datetime(2026, 10, 31, 17, 0), True, True),
+        (datetime(2026, 11, 1, 21, 0), True, False),
+    ],
+)
+def test_temporal_context_flags(dt: datetime, is_weekend: bool, is_peak: bool) -> None:
+    ctx = temporal_context(dt)
+
+    assert (ctx.hour_of_day, ctx.day_of_week) == (dt.hour, dt.weekday())
+    assert ctx.is_weekend is is_weekend
+    assert ctx.is_peak_hour is is_peak
+
+
+def test_window_counts_only_strictly_before_ref() -> None:
+    stamps = [
+        datetime(2026, 10, 29, 23, 59),  # >12h: fuera
+        datetime(2026, 10, 30, 0, 0),  # justo 12h: dentro
+        datetime(2026, 10, 30, 5, 0),  # 7h
+        datetime(2026, 10, 30, 9, 0),  # 3h
+        REF,  # el propio instante: fuera (sin fuga)
+    ]
+
+    # (4h, 8h, 12h)
+    assert window_counts(stamps, REF) == (1, 2, 3)
+
+
+def test_shift_covers_hour() -> None:
+    assert shift_covers_hour("FULL_24H", 3) is True
+    assert shift_covers_hour("MORNING", 8) is True
+    assert shift_covers_hour("MORNING", 15) is False
+    assert shift_covers_hour("AFTERNOON", 18) is True
+    assert shift_covers_hour("NIGHT", 23) is True
+    assert shift_covers_hour("NIGHT", 2) is True
+    assert shift_covers_hour("NIGHT", 12) is False
+    assert shift_covers_hour("UNKNOWN", 12) is False
+
+
+def test_build_feature_frame_columns_and_same_zone() -> None:
+    frame = build_feature_frame(
+        [
+            {
+                "request_datetime": datetime(2026, 10, 31, 8, 0),
+                "urgency_level": "HIGH",
+                "service_type": "MEDICAL_URGENT",
+                "zone_id": "ZONE-01",
+                "unit_type": "BASIC",
+                "base_zone_id": "ZONE-01",
+                "shift": "MORNING",
+                "capacity": 2,
+            }
+        ]
+    )
+
+    assert list(frame.columns) == FEATURE_COLUMNS
+    row = frame.iloc[0]
+    assert (row.is_weekend, row.is_peak_hour, row.same_zone) == (1, 1, 1)
+
+
+def test_build_feature_frame_matches_persisted_features(db: Session) -> None:
+    """Las features de servicio deben coincidir con las de entrenamiento (sin desfase)."""
+    rows = (
+        db.execute(
+            text(
+                """
+                SELECT s.request_datetime, s.urgency_level, s.service_type, s.zone_id,
+                       u.unit_type, u.base_zone_id, u.shift, u.capacity,
+                       f.hour_of_day, f.day_of_week, f.is_weekend, f.is_peak_hour
+                FROM raw.services s
+                JOIN raw.units u ON s.assigned_unit_id = u.unit_id
+                JOIN analytics.service_features f ON f.service_id = s.service_id
+                ORDER BY s.request_datetime
+                LIMIT 500
+                """
+            )
+        )
+        .mappings()
+        .all()
+    )
+    assert rows, "dataset local vacío: ejecutar scripts/ingest_and_prepare.py"
+
+    frame = build_feature_frame([dict(r) for r in rows])
+
+    for row, (_, feat) in zip(rows, frame.iterrows(), strict=True):
+        assert feat.hour_of_day == row["hour_of_day"]
+        assert feat.day_of_week == row["day_of_week"]
+        assert feat.is_weekend == int(row["is_weekend"])
+        assert feat.is_peak_hour == int(row["is_peak_hour"])
