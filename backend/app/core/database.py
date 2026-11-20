@@ -3,7 +3,7 @@ from collections.abc import Generator
 from typing import Annotated
 
 from fastapi import Depends
-from sqlalchemy import create_engine, text
+from sqlalchemy import MetaData, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
 from app.core.config import settings
@@ -22,6 +22,14 @@ SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False, clas
 
 class Base(DeclarativeBase):
     """Declarative base for all CORE SQLAlchemy models."""
+
+    # Named foreign keys so Alembic can always drop them in downgrade().
+    metadata = MetaData(
+        naming_convention={
+            "ix": "ix_%(column_0_label)s",  # SQLAlchemy default, kept explicitly
+            "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
+        }
+    )
 
 
 def get_db() -> Generator[Session, None, None]:

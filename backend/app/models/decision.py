@@ -1,6 +1,16 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,10 +19,17 @@ from app.core.database import Base
 
 class Recommendation(Base):
     __tablename__ = "recommendations"
-    __table_args__ = {"schema": "decision"}
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('GENERATED', 'NO_ELIGIBLE_UNITS')", name="ck_recommendations_status"
+        ),
+        {"schema": "decision"},
+    )
 
     recommendation_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    service_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
+    service_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("raw.services.service_id"), index=True, nullable=False
+    )
     simulation_datetime: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     eligible_count: Mapped[int] = mapped_column(Integer, nullable=False)
@@ -32,7 +49,9 @@ class RecommendationCandidate(Base):
         ForeignKey("decision.recommendations.recommendation_id", ondelete="CASCADE"),
         index=True,
     )
-    unit_id: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
+    unit_id: Mapped[str] = mapped_column(
+        String(16), ForeignKey("raw.units.unit_id"), index=True, nullable=False
+    )
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     score: Mapped[float] = mapped_column(Float, nullable=False)
     time_penalty: Mapped[float] = mapped_column(Float, nullable=False)
@@ -50,13 +69,31 @@ class RecommendationCandidate(Base):
 
 class DispatchDecision(Base):
     __tablename__ = "dispatch_decisions"
-    __table_args__ = {"schema": "decision"}
+    __table_args__ = (
+        CheckConstraint(
+            "NOT accepted OR assigned_unit_id IS NOT NULL", name="ck_decisions_accepted_has_unit"
+        ),
+        CheckConstraint(
+            "accepted OR assigned_unit_id IS NOT NULL OR rejection_reason IS NOT NULL",
+            name="ck_decisions_rejection_has_reason",
+        ),
+        {"schema": "decision"},
+    )
 
     decision_id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    service_id: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
-    recommendation_id: Mapped[str | None] = mapped_column(String(36), nullable=True)
-    recommended_unit_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    assigned_unit_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    # One human decision per service (immutable audit record).
+    service_id: Mapped[str] = mapped_column(
+        String(32), ForeignKey("raw.services.service_id"), unique=True, index=True, nullable=False
+    )
+    recommendation_id: Mapped[str | None] = mapped_column(
+        String(36), ForeignKey("decision.recommendations.recommendation_id"), nullable=True
+    )
+    recommended_unit_id: Mapped[str | None] = mapped_column(
+        String(16), ForeignKey("raw.units.unit_id"), nullable=True
+    )
+    assigned_unit_id: Mapped[str | None] = mapped_column(
+        String(16), ForeignKey("raw.units.unit_id"), nullable=True
+    )
     recommendation_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, nullable=False)
     rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)

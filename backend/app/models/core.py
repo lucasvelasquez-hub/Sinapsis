@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, String
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -9,7 +9,14 @@ from app.core.database import Base
 
 class ScoringConfig(Base):
     __tablename__ = "scoring_config"
-    __table_args__ = {"schema": "core"}
+    __table_args__ = (
+        CheckConstraint(
+            "weight_time BETWEEN 0 AND 1 AND weight_workload BETWEEN 0 AND 1"
+            " AND weight_cost BETWEEN 0 AND 1 AND weight_coverage BETWEEN 0 AND 1",
+            name="ck_scoring_weights_unit_interval",
+        ),
+        {"schema": "core"},
+    )
 
     config_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     weight_time: Mapped[float] = mapped_column(Float, default=0.80, nullable=False)

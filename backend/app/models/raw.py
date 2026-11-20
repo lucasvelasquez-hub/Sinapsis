@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -8,14 +8,25 @@ from app.core.database import Base
 
 class RawService(Base):
     __tablename__ = "services"
-    __table_args__ = {"schema": "raw"}
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('PENDING', 'DISPATCHED', 'REJECTED', 'COMPLETED')",
+            name="ck_services_status",
+        ),
+        CheckConstraint(
+            "urgency_level IN ('CRITICAL', 'HIGH', 'MEDIUM', 'LOW')", name="ck_services_urgency"
+        ),
+        {"schema": "raw"},
+    )
 
     service_id: Mapped[str] = mapped_column(String(32), primary_key=True)
     request_datetime: Mapped[datetime] = mapped_column(DateTime, index=True, nullable=False)
     urgency_level: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
     service_type: Mapped[str] = mapped_column(String(32), index=True, nullable=False)
     zone_id: Mapped[str] = mapped_column(String(16), index=True, nullable=False)
-    assigned_unit_id: Mapped[str | None] = mapped_column(String(16), index=True, nullable=True)
+    assigned_unit_id: Mapped[str | None] = mapped_column(
+        String(16), ForeignKey("raw.units.unit_id"), index=True, nullable=True
+    )
     response_time_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     service_duration_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     completion_datetime: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
