@@ -66,10 +66,18 @@ def list_requests(
     urgency_level: str | None = None,
     zone_id: str | None = None,
     status: str | None = None,
+    service_type: str | None = None,
+    q: str | None = None,
     limit: int = 50,
     offset: int = 0,
 ) -> list[RequestSummary]:
     stmt = select(RawService)
+    if service_type:
+        stmt = stmt.where(RawService.service_type == service_type)
+    if q:
+        # Búsqueda por ID: contiene, sin mayúsculas; % y _ del usuario son literales.
+        literal = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        stmt = stmt.where(RawService.service_id.ilike(f"%{literal}%", escape="\\"))
     if urgency_level:
         stmt = stmt.where(RawService.urgency_level == urgency_level)
     if zone_id:

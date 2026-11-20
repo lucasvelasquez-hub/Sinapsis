@@ -19,6 +19,8 @@ def get_requests(
     urgency_level: str | None = None,
     zone_id: str | None = None,
     status: str | None = None,
+    service_type: str | None = None,
+    q: Annotated[str | None, Query(max_length=32)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
 ) -> list[RequestSummary]:
@@ -27,6 +29,8 @@ def get_requests(
         urgency_level=urgency_level,
         zone_id=zone_id,
         status=status,
+        service_type=service_type,
+        q=q,
         limit=limit,
         offset=offset,
     )
