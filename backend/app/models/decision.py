@@ -86,13 +86,16 @@ class DispatchDecision(Base):
         String(32), ForeignKey("raw.services.service_id"), unique=True, index=True, nullable=False
     )
     recommendation_id: Mapped[str | None] = mapped_column(
-        String(36), ForeignKey("decision.recommendations.recommendation_id"), nullable=True
+        String(36),
+        ForeignKey("decision.recommendations.recommendation_id"),
+        index=True,
+        nullable=True,
     )
     recommended_unit_id: Mapped[str | None] = mapped_column(
-        String(16), ForeignKey("raw.units.unit_id"), nullable=True
+        String(16), ForeignKey("raw.units.unit_id"), index=True, nullable=True
     )
     assigned_unit_id: Mapped[str | None] = mapped_column(
-        String(16), ForeignKey("raw.units.unit_id"), nullable=True
+        String(16), ForeignKey("raw.units.unit_id"), index=True, nullable=True
     )
     recommendation_score: Mapped[float | None] = mapped_column(Float, nullable=True)
     accepted: Mapped[bool] = mapped_column(Boolean, nullable=False)

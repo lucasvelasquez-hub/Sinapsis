@@ -19,6 +19,10 @@ TARGET_SCHEMAS = ("raw", "analytics", "decision", "core")
 # the Data API with grants for anon/authenticated, so anyone with the anon key could
 # read or rewrite the schema version.
 VERSION_TABLE_SCHEMA = "core"
+# DDL takes strong locks (ALTER TABLE: ACCESS EXCLUSIVE). Without a limit, a migration queued
+# behind a long transaction also queues every app query that arrives after it. Fail fast
+# instead and retry later.
+MIGRATION_LOCK_TIMEOUT = "SET LOCAL lock_timeout = '5s'"
 
 
 def include_name(name, type_, parent_names):
@@ -40,6 +44,7 @@ def run_migrations_offline() -> None:
     )
 
     with context.begin_transaction():
+        context.execute(MIGRATION_LOCK_TIMEOUT)
         context.run_migrations()
 
 
@@ -64,6 +69,7 @@ def run_migrations_online() -> None:
         )
 
         with context.begin_transaction():
+            context.execute(MIGRATION_LOCK_TIMEOUT)
             context.run_migrations()
 
 
