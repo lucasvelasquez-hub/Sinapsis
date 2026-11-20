@@ -11,6 +11,7 @@ from app.schemas.analytics import (
     DemandBucketOut,
     ModelMetricOut,
 )
+from app.services.prediction_service import model_evaluation
 from app.services.simulation_service import get_or_create_simulation_session, get_units_busy_until
 
 
@@ -51,11 +52,16 @@ def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
         .where(DispatchDecision.accepted.is_(True))
     ).scalar_one()
 
-    metrics_rows = db.execute(select(PredictionResult)).scalars().all()
-    selected_model = next(
-        (m.model_name for m in metrics_rows if m.is_selected), "statistical_baseline"
-    )
-    model_metrics = [ModelMetricOut.model_validate(m) for m in metrics_rows]
+    evaluation = model_evaluation()
+    if evaluation is not None:
+        selected_model, rows = evaluation
+        model_metrics = [ModelMetricOut.model_validate(r) for r in rows]
+    else:  # sin artefacto: lo que haya registrado el último entrenamiento en esta DB
+        metrics_rows = db.execute(select(PredictionResult)).scalars().all()
+        selected_model = next(
+            (m.model_name for m in metrics_rows if m.is_selected), "statistical_baseline"
+        )
+        model_metrics = [ModelMetricOut.model_validate(m) for m in metrics_rows]
 
     return AnalyticsOverviewOut(
         total_services=int(total_services),

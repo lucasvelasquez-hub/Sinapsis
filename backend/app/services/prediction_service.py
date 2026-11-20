@@ -30,6 +30,26 @@ def _load_artifact() -> dict[str, Any] | None:
     return load_artifact(ARTIFACT_PATH)
 
 
+def model_evaluation() -> tuple[str, list[dict[str, Any]]] | None:
+    """(selected model, metric rows) of the model actually loaded, from its manifest.
+
+    The metrics travel with the artifact, so every environment (local, Supabase) reports the
+    evaluation of the model it serves, whatever database it was trained against.
+    None when no artifact is loaded.
+    """
+    artifact = _load_artifact()
+    if artifact is None:
+        return None
+    metrics = artifact["manifest"]["metrics"]
+    selected = metrics["selected"]
+    rows = [
+        {"model_name": name, "split_name": split, "is_selected": name == selected, **values}
+        for split in ("validation", "test")
+        for name, values in metrics[split].items()
+    ]
+    return selected, rows
+
+
 def predict_expected_responses(
     service: RawService, units: Sequence[UnitStatusOut]
 ) -> list[Prediction]:
