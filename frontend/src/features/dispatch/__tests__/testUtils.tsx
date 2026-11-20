@@ -22,7 +22,10 @@ export const CATALOG: Catalog = {
   shifts: ["TURNO_24H"],
 };
 
-export function request(id: string, overrides: Partial<RequestSummary> = {}): RequestSummary {
+export function request(
+  id: string,
+  overrides: Partial<RequestSummary> = {},
+): RequestSummary {
   return {
     service_id: id,
     request_datetime: "2026-10-29T23:47:00",
@@ -38,11 +41,18 @@ export function request(id: string, overrides: Partial<RequestSummary> = {}): Re
 }
 
 export function renderWithClient(ui: ReactElement) {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-  return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>{ui}</QueryClientProvider>,
+  );
 }
 
-export function unit(id: string, overrides: Partial<UnitStatus> = {}): UnitStatus {
+export function unit(
+  id: string,
+  overrides: Partial<UnitStatus> = {},
+): UnitStatus {
   return {
     unit_id: id,
     unit_type: "MEDICALIZADA",
@@ -61,7 +71,7 @@ export function unit(id: string, overrides: Partial<UnitStatus> = {}): UnitStatu
 
 export function eligibility(
   eligibleIds: string[],
-  excluded: { id: string; reason: string }[] = []
+  excluded: { id: string; reason: string }[] = [],
 ): EligibilityEvaluation {
   return {
     service_id: "SIM-0004",
@@ -100,7 +110,7 @@ export function detail(id: string, status = "PENDING"): RequestDetail {
 export function recommendation(
   serviceId: string,
   unitIds: string[] = ["MOV-024", "MOV-012", "MOV-016"],
-  status = "GENERATED"
+  status = "GENERATED",
 ): RecommendationOut {
   return {
     recommendation_id: `R-${serviceId}`,

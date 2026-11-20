@@ -23,10 +23,12 @@ export function LastDecisionBanner() {
       <div className="flex items-start gap-2">
         <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
         <div>
-          <span className="font-semibold">Decisión registrada:</span> {what} · {decision.dispatcher_id}
+          <span className="font-semibold">Decisión registrada:</span> {what},
+          firmada por {decision.dispatcher_id}
           {decision.eligibility_override.length > 0 && (
             <div className="mt-0.5 text-xs text-amber-300">
-              Override de elegibilidad en auditoría: {decision.eligibility_override.join(" · ")}
+              Excepción de elegibilidad registrada en auditoría:{" "}
+              {decision.eligibility_override.join("; ")}
             </div>
           )}
         </div>

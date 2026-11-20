@@ -10,9 +10,17 @@ import { CATALOG, renderWithClient, request } from "./testUtils";
 const initial = useDispatchStore.getState();
 const okQuery = { error: null, refetch: vi.fn() };
 
-function renderQueue(requests = [request("SIM-1"), request("SIM-2")], onCreate = vi.fn()) {
+function renderQueue(
+  requests = [request("SIM-1"), request("SIM-2")],
+  onCreate = vi.fn(),
+) {
   return renderWithClient(
-    <RequestQueue requests={requests} isLoading={false} query={okQuery} onCreate={onCreate} />
+    <RequestQueue
+      requests={requests}
+      isLoading={false}
+      query={okQuery}
+      onCreate={onCreate}
+    />,
   );
 }
 
@@ -29,13 +37,17 @@ describe("RequestQueue", () => {
   it("shows only pending requests by default", () => {
     renderQueue();
 
-    expect((screen.getByLabelText("Estado") as HTMLSelectElement).value).toBe("PENDING");
+    expect((screen.getByLabelText("Estado") as HTMLSelectElement).value).toBe(
+      "PENDING",
+    );
   });
 
   it("offers urgencies, service types and zones from the catalog", async () => {
     renderQueue();
 
-    expect(await screen.findByRole("option", { name: "EVENTO_ESPECIAL" })).toBeTruthy();
+    expect(
+      await screen.findByRole("option", { name: "EVENTO_ESPECIAL" }),
+    ).toBeTruthy();
     expect(screen.getByRole("option", { name: "COMUNA_02" })).toBeTruthy();
     expect(screen.getByRole("option", { name: "CRITICA" })).toBeTruthy();
   });
@@ -44,7 +56,9 @@ describe("RequestQueue", () => {
     vi.useFakeTimers();
     renderQueue();
 
-    fireEvent.change(screen.getByLabelText("Buscar por ID"), { target: { value: "0999" } });
+    fireEvent.change(screen.getByLabelText("Buscar por ID"), {
+      target: { value: "0999" },
+    });
     expect(useDispatchStore.getState().filters.search).toBe("");
     act(() => vi.advanceTimersByTime(350));
 

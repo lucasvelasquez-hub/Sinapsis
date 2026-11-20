@@ -30,14 +30,20 @@ describe("LastDecisionBanner", () => {
     useDispatchStore.getState().setSelectedServiceId("SIM-0004");
     render(<LastDecisionBanner />);
 
-    expect(screen.getByRole("status").textContent).toMatch(/MOV-024 → SIM-0003.*desp-07/);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /MOV-024 → SIM-0003.*desp-07/,
+    );
   });
 
   it("describes a rejection without unit and can be dismissed", () => {
-    useDispatchStore.getState().setLastDecision(decision({ assigned_unit_id: null }));
+    useDispatchStore
+      .getState()
+      .setLastDecision(decision({ assigned_unit_id: null }));
     render(<LastDecisionBanner />);
 
-    expect(screen.getByRole("status").textContent).toMatch(/SIM-0003 rechazada sin asignar/);
+    expect(screen.getByRole("status").textContent).toMatch(
+      /SIM-0003 rechazada sin asignar/,
+    );
     fireEvent.click(screen.getByRole("button", { name: /cerrar/i }));
     expect(screen.queryByRole("status")).toBeNull();
   });

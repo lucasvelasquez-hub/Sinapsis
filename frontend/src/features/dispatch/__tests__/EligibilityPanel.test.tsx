@@ -12,18 +12,26 @@ const EXCLUDED = [
 
 describe("EligibilityPanel", () => {
   it("shows eligible units and keeps exclusions folded", () => {
-    render(<EligibilityPanel eligibility={eligibility(["MOV-024", "MOV-012"], EXCLUDED)} />);
+    render(
+      <EligibilityPanel
+        eligibility={eligibility(["MOV-024", "MOV-012"], EXCLUDED)}
+      />,
+    );
 
     expect(screen.getByText("MOV-024")).toBeTruthy();
     expect(screen.getByText("MOV-012")).toBeTruthy();
     expect(screen.queryByText(/Ocupada hasta/)).toBeNull();
     expect(
-      screen.getByRole("button", { name: /excluidas \(3\)/i }).getAttribute("aria-expanded")
+      screen
+        .getByRole("button", { name: /excluidas \(3\)/i })
+        .getAttribute("aria-expanded"),
     ).toBe("false");
   });
 
   it("unfolds the exclusions with their reasons on click", () => {
-    render(<EligibilityPanel eligibility={eligibility(["MOV-024"], EXCLUDED)} />);
+    render(
+      <EligibilityPanel eligibility={eligibility(["MOV-024"], EXCLUDED)} />,
+    );
 
     fireEvent.click(screen.getByRole("button", { name: /excluidas \(3\)/i }));
 

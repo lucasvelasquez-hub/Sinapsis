@@ -25,7 +25,14 @@ const BASE = {
 
 describe("buildDecisionPayload", () => {
   it("accepting #1", () => {
-    expect(buildDecisionPayload(REC, { kind: "candidate", unitId: "MOV-024", rank: 1 }, "", "desp-07")).toEqual({
+    expect(
+      buildDecisionPayload(
+        REC,
+        { kind: "candidate", unitId: "MOV-024", rank: 1 },
+        "",
+        "desp-07",
+      ),
+    ).toEqual({
       ...BASE,
       assigned_unit_id: "MOV-024",
       accepted: true,
@@ -34,7 +41,14 @@ describe("buildDecisionPayload", () => {
   });
 
   it("choosing alternative #2 explains the choice", () => {
-    expect(buildDecisionPayload(REC, { kind: "candidate", unitId: "MOV-012", rank: 2 }, "", "desp-07")).toEqual({
+    expect(
+      buildDecisionPayload(
+        REC,
+        { kind: "candidate", unitId: "MOV-012", rank: 2 },
+        "",
+        "desp-07",
+      ),
+    ).toEqual({
       ...BASE,
       assigned_unit_id: "MOV-012",
       accepted: false,
@@ -43,7 +57,14 @@ describe("buildDecisionPayload", () => {
   });
 
   it("rejecting with another unit keeps the operator's reason", () => {
-    expect(buildDecisionPayload(REC, { kind: "manual", unitId: "MOV-007" }, "  Más cerca  ", "desp-07")).toEqual({
+    expect(
+      buildDecisionPayload(
+        REC,
+        { kind: "manual", unitId: "MOV-007" },
+        "  Más cerca  ",
+        "desp-07",
+      ),
+    ).toEqual({
       ...BASE,
       assigned_unit_id: "MOV-007",
       accepted: false,
@@ -52,7 +73,14 @@ describe("buildDecisionPayload", () => {
   });
 
   it("rejecting without assigning", () => {
-    expect(buildDecisionPayload(REC, { kind: "manual", unitId: null }, "Sin recurso", "desp-07")).toEqual({
+    expect(
+      buildDecisionPayload(
+        REC,
+        { kind: "manual", unitId: null },
+        "Sin recurso",
+        "desp-07",
+      ),
+    ).toEqual({
       ...BASE,
       assigned_unit_id: null,
       accepted: false,
@@ -63,8 +91,17 @@ describe("buildDecisionPayload", () => {
 
 describe("otherAvailableUnits", () => {
   it("lists eligible units outside the Top 3, in order", () => {
-    const elig = eligibility(["MOV-007", "MOV-024", "MOV-003", "MOV-012", "MOV-016"]);
+    const elig = eligibility([
+      "MOV-007",
+      "MOV-024",
+      "MOV-003",
+      "MOV-012",
+      "MOV-016",
+    ]);
 
-    expect(otherAvailableUnits(REC, elig).map((u) => u.unit_id)).toEqual(["MOV-007", "MOV-003"]);
+    expect(otherAvailableUnits(REC, elig).map((u) => u.unit_id)).toEqual([
+      "MOV-007",
+      "MOV-003",
+    ]);
   });
 });

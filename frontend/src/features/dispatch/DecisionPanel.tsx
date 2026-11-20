@@ -1,14 +1,24 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { AlertTriangle, CheckCircle2, Clock, ShieldAlert, Sparkles, XCircle } from "lucide-react";
+import {
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  ShieldAlert,
+  Sparkles,
+  XCircle,
+} from "lucide-react";
 import { useRef, useState } from "react";
 
 import { ErrorAlert } from "@/components/ErrorAlert";
 import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { ApiError, coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { normalizeDispatcherId, useDispatcherStore } from "@/stores/dispatcherStore";
+import {
+  normalizeDispatcherId,
+  useDispatcherStore,
+} from "@/stores/dispatcherStore";
 import { type Selection, useDispatchStore } from "@/stores/dispatchStore";
 import type {
   EligibilityEvaluation,
@@ -18,6 +28,7 @@ import type {
 } from "@/types/core";
 
 import { buildDecisionPayload, otherAvailableUnits } from "./decisionPayload";
+import { URGENCY_EDGE } from "./urgency";
 
 /**
  * Decidir bajo presión: evaluar una vez, seleccionar (nunca despacha) y confirmar en la barra.
@@ -32,8 +43,11 @@ export function DecisionPanel({
   eligibility: EligibilityEvaluation | undefined;
   onDecided: () => void;
 }) {
-  const { recommendations, selection, rejecting, select, setRejecting } = useDispatchStore();
-  const dispatcherId = normalizeDispatcherId(useDispatcherStore((s) => s.dispatcherId));
+  const { recommendations, selection, rejecting, select, setRejecting } =
+    useDispatchStore();
+  const dispatcherId = normalizeDispatcherId(
+    useDispatcherStore((s) => s.dispatcherId),
+  );
   const [reason, setReason] = useState("");
   const submitting = useRef(false);
 
@@ -49,7 +63,9 @@ export function DecisionPanel({
 
   const decisionMutation = useMutation({
     // Igual que la evaluación: se guarda aunque el panel se desmonte (la cola avanza sola).
-    mutationFn: async (payload: Parameters<typeof coreApi.recordDecision>[0]) => {
+    mutationFn: async (
+      payload: Parameters<typeof coreApi.recordDecision>[0],
+    ) => {
       const decision = await coreApi.recordDecision(payload);
       useDispatchStore.getState().setLastDecision(decision);
       return decision;
@@ -77,7 +93,7 @@ export function DecisionPanel({
           {decision.assigned_unit_id
             ? `${decision.assigned_unit_id} despachada a ${detail.service_id}`
             : `${detail.service_id} rechazada sin asignar`}{" "}
-          · firmada por {decision.dispatcher_id}
+          , firmada por {decision.dispatcher_id}
         </p>
         {decision.eligibility_override.length > 0 && (
           <p className="mt-1.5 text-amber-300">
@@ -98,7 +114,14 @@ export function DecisionPanel({
   }
 
   const evaluated = Boolean(rec);
-  const others = rec && eligibility ? otherAvailableUnits(rec, eligibility) : [];
+  // Los avisos que comparten todas las candidatas (p. ej. "sin GPS") se muestran una vez.
+  const commonWarnings = rec?.candidates.length
+    ? rec.candidates[0].warnings.filter((w) =>
+        rec.candidates.every((c) => c.warnings.includes(w)),
+      )
+    : [];
+  const others =
+    rec && eligibility ? otherAvailableUnits(rec, eligibility) : [];
   const needsReason = selection?.kind === "manual";
   const canConfirm =
     Boolean(rec && selection && dispatcherId) &&
@@ -108,21 +131,29 @@ export function DecisionPanel({
   const confirm = () => {
     if (!rec || !selection || !dispatcherId || submitting.current) return;
     submitting.current = true;
-    decisionMutation.mutate(buildDecisionPayload(rec, selection, reason, dispatcherId));
+    decisionMutation.mutate(
+      buildDecisionPayload(rec, selection, reason, dispatcherId),
+    );
   };
 
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-xs text-slate-400">Menor puntuación J = alternativa más favorable</p>
+        <p className="text-xs text-slate-300">
+          Menor puntuación, mejor alternativa
+        </p>
         <button
           type="button"
           disabled={evaluated || evalMutation.isPending}
           onClick={() => evalMutation.mutate(detail.service_id)}
-          className="inline-flex items-center gap-1.5 rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-50"
+          className="inline-flex items-center gap-1.5 rounded-md border border-cyan-500/60 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:text-slate-300"
         >
           <Sparkles className="h-3.5 w-3.5" />
-          {evalMutation.isPending ? "Evaluando…" : evaluated ? "Evaluada" : "Evaluar alternativas"}
+          {evalMutation.isPending
+            ? "Evaluando…"
+            : evaluated
+              ? "Evaluada"
+              : "Evaluar alternativas"}
         </button>
       </div>
 
@@ -141,18 +172,35 @@ export function DecisionPanel({
             <ShieldAlert className="h-4 w-4" />
             Sin unidades elegibles disponibles en este escenario
           </div>
-          <p className="mt-1">CORE no inventa recomendaciones cuando las restricciones excluyen todas las unidades.</p>
+          <p className="mt-1">
+            CORE no inventa recomendaciones cuando las restricciones excluyen
+            todas las unidades.
+          </p>
         </div>
       ) : (
         <>
           {!rejecting ? (
-            <div role="radiogroup" aria-label="Recomendaciones" className="space-y-2">
+            <div
+              role="radiogroup"
+              aria-label="Recomendaciones"
+              className="space-y-2"
+            >
               {rec.candidates.map((cand) => (
                 <CandidateOption
                   key={cand.unit_id}
                   cand={cand}
-                  selected={selection?.kind === "candidate" && selection.unitId === cand.unit_id}
-                  onSelect={() => select({ kind: "candidate", unitId: cand.unit_id, rank: cand.rank })}
+                  commonWarnings={commonWarnings}
+                  selected={
+                    selection?.kind === "candidate" &&
+                    selection.unitId === cand.unit_id
+                  }
+                  onSelect={() =>
+                    select({
+                      kind: "candidate",
+                      unitId: cand.unit_id,
+                      rank: cand.rank,
+                    })
+                  }
                 />
               ))}
             </div>
@@ -167,13 +215,28 @@ export function DecisionPanel({
             />
           )}
 
+          {!rejecting && commonWarnings.length > 0 && (
+            <ul className="space-y-0.5 text-xs text-slate-400">
+              {commonWarnings.map((w) => (
+                <li key={w} className="flex items-start gap-1.5">
+                  <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-300" />
+                  <span>{w}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+
           {!rejecting && (
             <button
               type="button"
               disabled={selection !== null}
-              title={selection ? "Deselecciona la candidata para rechazar las recomendaciones" : undefined}
+              title={
+                selection
+                  ? "Deselecciona la candidata para rechazar las recomendaciones"
+                  : undefined
+              }
               onClick={() => setRejecting(true)}
-              className="inline-flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 disabled:cursor-not-allowed disabled:text-slate-500"
+              className="inline-flex items-center gap-1.5 rounded text-xs text-rose-300 hover:text-rose-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400/50 disabled:cursor-not-allowed disabled:text-slate-400"
             >
               <XCircle className="h-3.5 w-3.5" />
               Rechazar recomendaciones
@@ -181,23 +244,33 @@ export function DecisionPanel({
           )}
 
           {selection && (
-            <div className="sticky bottom-0 flex items-center justify-between gap-3 rounded-md border border-cyan-500/40 bg-slate-950 p-3">
-              <span className="text-sm font-semibold text-white">
+            <div
+              className={cn(
+                "sticky bottom-0 flex items-center justify-between gap-4 rounded-lg border border-l-4 border-slate-700 bg-slate-950 px-4 py-3 shadow-lg shadow-black/40",
+                URGENCY_EDGE[detail.urgency_level] ?? "border-l-slate-500",
+              )}
+            >
+              <span className="font-mono text-lg font-bold text-slate-50">
                 {confirmLabel(selection, detail.service_id)}
               </span>
               <button
                 type="button"
                 disabled={!canConfirm}
                 onClick={confirm}
-                className="rounded-md bg-cyan-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
+                className="shrink-0 rounded-md bg-cyan-500 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
               >
-                {decisionMutation.isPending ? "Registrando…" : "Confirmar"}
+                {decisionMutation.isPending
+                  ? "Registrando…"
+                  : selection.kind === "manual" && selection.unitId === null
+                    ? "Confirmar rechazo"
+                    : "Confirmar despacho"}
               </button>
             </div>
           )}
           {selection && !dispatcherId && (
-            <p className="text-xs text-amber-300">
-              Indica tu identificador de despachador (arriba) para poder registrar la decisión.
+            <p className="text-xs text-amber-200">
+              Indica tu identificador de despachador (arriba) para poder
+              registrar la decisión.
             </p>
           )}
         </>
@@ -205,74 +278,104 @@ export function DecisionPanel({
 
       <ErrorAlert
         error={decisionMutation.error}
-        onRetry={() => decisionMutation.variables && decisionMutation.mutate(decisionMutation.variables)}
+        onRetry={() =>
+          decisionMutation.variables &&
+          decisionMutation.mutate(decisionMutation.variables)
+        }
       />
     </div>
   );
 }
 
-function confirmLabel(selection: NonNullable<Selection>, serviceId: string): string {
-  if (selection.kind === "candidate") return `Despachar ${selection.unitId} → ${serviceId}`;
-  if (selection.unitId) return `Despachar ${selection.unitId} (fuera del Top 3)`;
+function confirmLabel(
+  selection: NonNullable<Selection>,
+  serviceId: string,
+): string {
+  if (selection.kind === "candidate")
+    return `Despachar ${selection.unitId} → ${serviceId}`;
+  if (selection.unitId)
+    return `Despachar ${selection.unitId} (fuera del Top 3)`;
   return "Rechazar sin asignar";
 }
 
 function CandidateOption({
   cand,
+  commonWarnings,
   selected,
   onSelect,
 }: {
   cand: RecommendationCandidate;
+  commonWarnings: string[];
   selected: boolean;
   onSelect: () => void;
 }) {
+  const ownWarnings = cand.warnings.filter((w) => !commonWarnings.includes(w));
+  const top = cand.rank === 1;
   return (
     <button
       type="button"
       role="radio"
       aria-checked={selected}
-      aria-label={`#${cand.rank} ${cand.unit_id} ${cand.unit_type}${cand.rank === 1 ? " recomendada" : ""}`}
+      aria-label={`#${cand.rank} ${cand.unit_id} ${cand.unit_type}${top ? " recomendada" : ""}`}
       onClick={onSelect}
       className={cn(
-        "w-full rounded-lg border p-3 text-left transition-colors",
+        "w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400",
         selected
-          ? "border-cyan-400 bg-cyan-500/10 ring-1 ring-cyan-400"
-          : "border-slate-800 bg-slate-950/70 hover:border-slate-600"
+          ? "border-cyan-400 bg-cyan-500/10"
+          : "border-slate-800 bg-slate-950/70 hover:border-slate-600",
       )}
     >
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-xs font-bold text-cyan-300">
-              #{cand.rank}
-            </span>
-            <span className="font-mono text-sm font-bold text-white">{cand.unit_id}</span>
-            <span className="text-xs text-slate-400">
-              {cand.unit_type} · {cand.base_id}
-            </span>
-            {cand.rank === 1 && (
-              <span className="rounded bg-cyan-500/15 px-1.5 py-0.5 text-[11px] text-cyan-200">
-                Recomendada
-              </span>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <span
+            aria-hidden
+            className={cn(
+              "mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+              selected ? "border-cyan-300" : "border-slate-500",
             )}
-          </div>
-          <div className="mt-1 flex items-center gap-2 text-xs text-slate-400">
-            <Clock className="h-3 w-3 text-amber-300" />
-            <span className="font-mono text-amber-200">{cand.expected_response_min} min</span>
-            <ProvenanceBadge type="PREDICHO" />
+          >
+            {selected && <span className="h-2 w-2 rounded-full bg-cyan-300" />}
+          </span>
+          <div>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-xs text-slate-400">#{cand.rank}</span>
+              <span className="font-mono text-base font-bold text-slate-50">
+                {cand.unit_id}
+              </span>
+              <span className="text-xs text-slate-300">
+                {cand.unit_type}, {cand.base_id}
+              </span>
+              {top && (
+                <span className="text-xs font-semibold text-cyan-200">
+                  Recomendada
+                </span>
+              )}
+            </div>
+            <div className="mt-1 flex items-center gap-2 text-sm">
+              <Clock className="h-3.5 w-3.5 text-amber-300" />
+              <span
+                className={cn("tabular-nums text-slate-50", top && "font-bold")}
+              >
+                {cand.expected_response_min} min
+              </span>
+              <ProvenanceBadge type="PREDICHO" />
+            </div>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-[11px] uppercase text-slate-400">Puntuación J</div>
-          <div className="font-mono text-lg font-bold tabular-nums text-white">
+          <div className="text-xs text-slate-400">Puntuación</div>
+          <div className="text-lg font-bold tabular-nums text-slate-50">
             {cand.score.toFixed(2)}
           </div>
         </div>
       </div>
-      <div className="mt-2 font-mono text-xs text-slate-400">
-        Carga 4h/8h/12h: {cand.workload_4h}/{cand.workload_8h}/{cand.workload_12h}
+      <div className="mt-2 pl-7 text-xs text-slate-300">
+        Servicios en 4h / 8h / 12h:{" "}
+        <span className="tabular-nums">
+          {cand.workload_4h} / {cand.workload_8h} / {cand.workload_12h}
+        </span>
       </div>
-      <ul className="mt-2 space-y-1 text-xs text-emerald-300">
+      <ul className="mt-1.5 space-y-0.5 pl-7 text-xs text-emerald-200">
         {cand.factors.map((f, i) => (
           <li key={i} className="flex items-start gap-1.5">
             <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
@@ -280,9 +383,9 @@ function CandidateOption({
           </li>
         ))}
       </ul>
-      {cand.warnings.length > 0 && (
-        <ul className="mt-1.5 space-y-0.5 text-[11px] text-amber-300">
-          {cand.warnings.map((w, i) => (
+      {ownWarnings.length > 0 && (
+        <ul className="mt-1 space-y-0.5 pl-7 text-xs text-amber-200">
+          {ownWarnings.map((w, i) => (
             <li key={i} className="flex items-start gap-1.5">
               <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
               <span>{w}</span>
@@ -315,14 +418,22 @@ function RejectOptions({
   return (
     <div className="space-y-2 rounded border border-rose-500/30 bg-rose-500/5 p-3">
       <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold text-rose-200">Otros móviles elegibles y libres</span>
-        <button type="button" onClick={onBack} className="text-xs text-slate-300 hover:text-white">
+        <span className="text-sm font-semibold text-rose-100">
+          Otros móviles elegibles y libres
+        </span>
+        <button
+          type="button"
+          onClick={onBack}
+          className="rounded text-xs text-slate-200 underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
+        >
           Volver a las recomendaciones
         </button>
       </div>
       <div role="radiogroup" aria-label="Otros móviles" className="space-y-1">
         {others.length === 0 && (
-          <p className="text-xs text-slate-400">No hay otros móviles elegibles y libres.</p>
+          <p className="text-xs text-slate-300">
+            No hay otros móviles elegibles y libres.
+          </p>
         )}
         {others.map((u) => (
           <button
@@ -334,12 +445,14 @@ function RejectOptions({
             onClick={() => onSelect({ kind: "manual", unitId: u.unit_id })}
             className={cn(
               "flex w-full items-center justify-between rounded border px-2.5 py-1.5 text-left text-xs",
-              isManual(u.unit_id) ? "border-cyan-400 bg-cyan-500/10" : "border-slate-800 bg-slate-950/60"
+              isManual(u.unit_id)
+                ? "border-cyan-400 bg-cyan-500/10"
+                : "border-slate-800 bg-slate-950/60",
             )}
           >
             <span className="font-mono text-slate-100">{u.unit_id}</span>
-            <span className="text-slate-400">
-              {u.unit_type} · {u.base_id} · carga 4h {u.workload_4h}
+            <span className="text-slate-300">
+              {u.unit_type}, {u.base_id}, {u.workload_4h} servicios en 4h
             </span>
           </button>
         ))}
@@ -351,7 +464,9 @@ function RejectOptions({
           onClick={() => onSelect({ kind: "manual", unitId: null })}
           className={cn(
             "w-full rounded border px-2.5 py-1.5 text-left text-xs text-slate-200",
-            isManual(null) ? "border-cyan-400 bg-cyan-500/10" : "border-slate-800 bg-slate-950/60"
+            isManual(null)
+              ? "border-cyan-400 bg-cyan-500/10"
+              : "border-slate-800 bg-slate-950/60",
           )}
         >
           No asignar ninguna unidad

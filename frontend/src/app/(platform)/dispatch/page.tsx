@@ -70,9 +70,9 @@ export default function DispatchCenterPage() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-white">Dispatch Center</h1>
-          <p className="text-xs text-slate-400">
-            Flujo: Solicitud → Contextualización → Elegibilidad → Predicción → MCDM → Decisión Humana
+          <h1 className="text-xl font-bold text-slate-50">Despacho</h1>
+          <p className="text-sm text-slate-300">
+            CORE recomienda; la decisión y la firma son del despachador.
           </p>
         </div>
         <div className="flex items-end gap-4">
@@ -83,7 +83,7 @@ export default function DispatchCenterPage() {
             className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500"
           >
             <Plus className="h-4 w-4" />
-            Nueva Solicitud Sintética
+            Nueva solicitud sintética
           </button>
         </div>
       </div>
@@ -103,17 +103,18 @@ export default function DispatchCenterPage() {
         <section className="col-span-4 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
           <QueryErrorAlert queries={[detailQuery]} />
           {!detail ? (
-            <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-xs text-slate-400">
-              Selecciona una solicitud de la cola para inspeccionar su contexto.
+            <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-6 text-sm text-slate-300">
+              Selecciona una solicitud de la cola para ver su contexto y
+              decidir.
             </div>
           ) : (
             <>
               <RequestSummaryCard detail={detail} />
               <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-                <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-300">
-                  Nodo 2 · Elegibilidad A(i,j)
-                </h3>
-                <QueryErrorAlert className="mb-3" queries={[eligibilityQuery]} />
+                <QueryErrorAlert
+                  className="mb-3"
+                  queries={[eligibilityQuery]}
+                />
                 <EligibilityPanel eligibility={eligibilityQuery.data} />
               </div>
             </>
@@ -122,9 +123,9 @@ export default function DispatchCenterPage() {
 
         <section className="col-span-5 flex h-[calc(100vh-11rem)] flex-col gap-4 overflow-y-auto pr-1">
           <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-            <h3 className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-300">
-              Nodos 3–5 · Recomendaciones MCDM
-            </h3>
+            <h2 className="mb-3 text-sm font-semibold text-slate-100">
+              Recomendación
+            </h2>
             {detail && (
               <DecisionPanel
                 key={detail.service_id}
@@ -138,7 +139,10 @@ export default function DispatchCenterPage() {
         </section>
       </div>
 
-      <SimulateRequestModal open={modalOpen} onClose={() => setModalOpen(false)} />
+      <SimulateRequestModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+      />
     </div>
   );
 }
