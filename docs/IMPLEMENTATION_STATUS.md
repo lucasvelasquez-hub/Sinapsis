@@ -39,3 +39,13 @@
 
 - Sin pendientes técnicos abiertos. (La recarga del dataset con decisiones registradas se resolvió con
   la carga incremental de `app/services/ingestion_service.py`.)
+
+## Pendientes funcionales
+
+- **Cambiar el estado de una unidad desde Flota** (pedido 2026-11-20, aplazado). Falta decidir qué estado:
+  - *Fuera de servicio / en servicio*: el interruptor `raw.units.active` ya existe y la elegibilidad lo
+    respeta (`INACTIVE`, "Unidad fuera de servicio operativo"), pero ningún endpoint ni pantalla lo cambia.
+  - *Liberar una ocupación simulada*: una unidad que terminó antes de lo previsto (quitar su entrada de
+    `core.simulation_sessions.active_assignments_json`).
+  - A resolver al diseñarlo: la carga incremental pone `active = true` a todas las unidades del CSV y
+    borraría un cambio manual; el cambio debe quedar en `core.audit_events` firmado por el despachador.
