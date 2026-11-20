@@ -22,6 +22,7 @@ paths:
 - Los motores (`eligibility`, `scoring`, `recommendation`) son funciones con fórmulas documentadas en
   `docs/architecture/overview.md`: un cambio de fórmula actualiza ese doc y sus tests en el mismo commit.
 - Tests en `backend/tests/` con los fixtures `client` / `db` de `conftest.py` (transacción revertida);
-  nunca un `TestClient(app)` a nivel de módulo, que escribiría en la DB real. La suite necesita la DB
+  nunca un `TestClient(app)` a nivel de módulo, que escribiría en la DB real. `conftest.py` fija la DB
+  de tests (`TEST_DATABASE_URL` o Docker local) antes de importar `app`: no quitarlo. La suite necesita la DB
   local levantada y falla si deja filas.
 - Antes de commit: `uv run pytest -q` y `uv run ruff check` sobre los archivos tocados.

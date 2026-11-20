@@ -4,15 +4,24 @@ La suite corre contra la DB local (Docker). Ningún test debe dejar filas: la gu
 `_db_untouched` compara el conteo de las tablas mutables al inicio y al final.
 """
 
-from collections.abc import Iterator
+import os
 
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import text
-from sqlalchemy.orm import Session
+# `backend/.env` puede apuntar `DATABASE_URL` a Supabase (proyecto único, datos reales).
+# La suite usa siempre la DB de tests: `TEST_DATABASE_URL` o el Docker local. Las variables
+# de entorno tienen prioridad sobre `.env`, y debe fijarse antes de importar `app`, que crea
+# el engine al importarse.
+LOCAL_TEST_DATABASE_URL = "postgresql+psycopg://core_user:core_password@localhost:5433/core_db"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL", LOCAL_TEST_DATABASE_URL)
 
-from app.core.database import engine, get_db
-from app.main import app
+from collections.abc import Iterator  # noqa: E402
+
+import pytest  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import text  # noqa: E402
+from sqlalchemy.orm import Session  # noqa: E402
+
+from app.core.database import engine, get_db  # noqa: E402
+from app.main import app  # noqa: E402
 
 MUTABLE_TABLES = (
     "raw.services",

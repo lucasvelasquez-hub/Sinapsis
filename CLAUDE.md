@@ -99,8 +99,13 @@ Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T +
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
 - **Estado (2026-11-19): esquema aplicado en Supabase (revisión `31e853de3d90`), SIN datos** (no se ha
-  ingerido el dataset). La app y los tests siguen corriendo contra Docker local (`DATABASE_URL`).
+  ingerido el dataset).
+- La app usa la DB de `DATABASE_URL` (`backend/.env`). Los tests NO: `tests/conftest.py` la fuerza a
+  `TEST_DATABASE_URL` o al Docker local. Con `.env` apuntando a Supabase, `alembic` e
+  `ingest_and_prepare.py` actúan sobre Supabase: ingerir allí es una escritura y requiere permiso explícito.
 - `alembic_version` vive en `core` (no en `public`, que la Data API expone a `anon`).
+- `public.rls_auto_enable()` (trigger de eventos `ensure_rls`, ajeno a CORE): EXECUTE revocado a
+  `PUBLIC`/`anon`/`authenticated` (advisor 0028). El trigger sigue activo.
 - MCP en `.mcp.json` (OAuth, limitado al proyecto). Uso: leer esquema, `get_logs`, `get_advisors`, docs.
   El plugin de Supabase (`mcp__plugin_supabase_supabase__*`) NO está limitado al proyecto: sus tools
   destructivas están en `deny` de `.claude/settings.json`.
