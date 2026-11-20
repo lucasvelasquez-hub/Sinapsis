@@ -1,6 +1,6 @@
 # Diseño: adaptar CORE al dataset sintético mínimo
 
-Fecha: 2026-11-19 · Estado: borrador para aprobación
+Fecha: 2026-11-19 · Estado: decisiones del usuario incorporadas
 
 ## Intención
 
@@ -128,8 +128,8 @@ distancias y sin coste.
   `assignment_datetime <= ref_dt < closure_datetime`, o una asignación simulada vigente. Hoy se usa
   `completion > ref_dt`; el cambio añade el límite inferior para no marcar como ocupada una unidad
   por un servicio que aún no había empezado.
-- **Rango de compatibilidad:** el dataset no prioriza tipos de unidad. **Propuesta:** todas las
-  compatibles valen igual (rango 1), decide J y, en empate, el tiempo esperado.
+- **Rango de compatibilidad (decisión del usuario):** todas las unidades compatibles valen igual
+  (rango 1), sin reservar las de mayor nivel. Decide J y, en empate, el tiempo esperado.
   `compatibility_rank` se mantiene en la API con valor 1. La explicación dice "Compatible con
   {service_type}" en lugar de "Rango N".
 
@@ -168,9 +168,11 @@ distancias y sin coste.
 
 ### 8. Bases de datos
 
-- **Docker local:** reinicio (`docker compose down -v`, después migrar e ingerir). **Borra las
-  decisiones y la auditoría locales**: son datos de prueba (20 solicitudes sintéticas), pero se pide
-  confirmación antes.
+- **Decisión del usuario:** "La data debe ir a Supabase". Supabase es la base de la app; Docker
+  local queda solo como DB de tests y de CI.
+- **Docker local:** se reinicia (`docker compose down -v`, después migrar e ingerir), porque los
+  tests necesitan el esquema y los datos nuevos. Solo se pierden datos de prueba (20 solicitudes
+  sintéticas).
 - **Supabase:** está vacío, así que no hay nada que perder.
   - SQL de la revisión nueva con `alembic upgrade 31e853de3d90:head --sql`, ejecutado por MCP en una
     transacción, y después `get_advisors`.
@@ -199,7 +201,7 @@ este documento), `docs/IMPLEMENTATION_STATUS.md` y `.claude/rules/ml.md` (métri
 
 ## Decisiones del builder (propuestas mías, corregibles)
 
-1. Rango de compatibilidad plano: todas las compatibles valen igual.
+1. ~~Rango de compatibilidad plano~~: decidido por el usuario (§4).
 2. Horario de turnos [06,18) / [18,06), inferido de los datos.
 3. Ocupación simulada = mediana de asignación → cierre.
 4. Columnas generadas en Postgres para tiempos derivados.
