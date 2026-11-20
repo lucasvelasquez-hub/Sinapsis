@@ -3,11 +3,11 @@
 import uuid
 from datetime import timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
-from app.domain.enums import ServiceStatus
+from app.domain.enums import ServiceStatus, UrgencyLevel
 from app.domain.temporal import WINDOW_HOURS, temporal_context, window_counts
 from app.models.raw import RawResponseTarget, RawService
 from app.schemas.dispatch import (
@@ -61,6 +61,13 @@ def _build_request_context(db: Session, srv: RawService) -> RequestContext:
     )
 
 
+_URGENCY_RANK = case(
+    {level.value: rank for rank, level in enumerate(UrgencyLevel)},
+    value=RawService.urgency_level,
+    else_=len(UrgencyLevel),
+)
+
+
 def list_requests(
     db: Session,
     urgency_level: str | None = None,
@@ -86,15 +93,17 @@ def list_requests(
         stmt = stmt.where(RawService.status == status)
 
     # Synthetic/pending requests first, then newest historical requests
-    stmt = (
-        stmt.order_by(
+    if status == ServiceStatus.PENDING:
+        # Cola de trabajo: lo más urgente primero y, a igual urgencia, lo que más lleva esperando.
+        order = (_URGENCY_RANK, RawService.request_datetime.asc(), RawService.service_id.asc())
+    else:
+        # Consulta/histórico: lo más reciente primero.
+        order = (
             RawService.is_synthetic.desc(),
             RawService.request_datetime.desc(),
             RawService.service_id.desc(),
         )
-        .limit(limit)
-        .offset(offset)
-    )
+    stmt = stmt.order_by(*order).limit(limit).offset(offset)
     return [RequestSummary.model_validate(r) for r in db.execute(stmt).scalars()]
 
 
