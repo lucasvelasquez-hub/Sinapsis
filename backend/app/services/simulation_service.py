@@ -1,22 +1,28 @@
-from datetime import UTC, datetime, timedelta
+"""Simulated operational state: availability (busy_until) and recent workload per unit.
 
-from sqlalchemy import select
+Every lookup is batched over a set of units (one query per concern, never per unit).
+"""
+
+from collections import defaultdict
+from collections.abc import Collection
+from datetime import datetime, timedelta
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.temporal import WINDOW_HOURS, utcnow, window_counts
 from app.models.core import SimulationSession
 from app.models.raw import RawService
+
+WorkloadWindows = tuple[int, int, int]
 
 
 def get_or_create_simulation_session(db: Session) -> SimulationSession:
     """Return the active simulation session ('default'), creating it if missing."""
     session = db.get(SimulationSession, "default")
     if session is None:
-        latest = db.execute(
-            select(RawService.request_datetime)
-            .order_by(RawService.request_datetime.desc())
-            .limit(1)
-        ).scalar_one_or_none()
-        now_utc = datetime.now(UTC).replace(tzinfo=None)
+        latest = db.execute(select(func.max(RawService.request_datetime))).scalar_one_or_none()
+        now_utc = utcnow()
         session = SimulationSession(
             session_id="default",
             current_sim_datetime=latest or now_utc,
@@ -29,37 +35,65 @@ def get_or_create_simulation_session(db: Session) -> SimulationSession:
     return session
 
 
+def get_units_busy_until(
+    db: Session,
+    unit_ids: Collection[str],
+    ref_dt: datetime,
+    sim_session: SimulationSession,
+) -> dict[str, datetime | None]:
+    """busy_until per unit at ref_dt, or None when available.
+
+    A simulated assignment (human decision) takes precedence; otherwise the historical
+    proxy: a service started at or before ref_dt that completes after it (no future data).
+    """
+    hist = dict(
+        db.execute(
+            select(RawService.assigned_unit_id, func.max(RawService.completion_datetime))
+            .where(
+                RawService.assigned_unit_id.in_(unit_ids),
+                RawService.request_datetime <= ref_dt,
+                RawService.completion_datetime > ref_dt,
+            )
+            .group_by(RawService.assigned_unit_id)
+        ).all()
+    )
+    result: dict[str, datetime | None] = {}
+    for unit_id in unit_ids:
+        sim_busy = [
+            end
+            for start, end in _unit_assignment_windows(sim_session, unit_id)
+            if (start is None or start <= ref_dt) and end > ref_dt
+        ]
+        result[unit_id] = max(sim_busy) if sim_busy else hist.get(unit_id)
+    return result
+
+
 def get_unit_busy_until(
     db: Session,
     unit_id: str,
     ref_dt: datetime,
     sim_session: SimulationSession,
 ) -> datetime | None:
-    """Return busy_until datetime if unit is occupied at ref_dt in simulation, else None.
+    return get_units_busy_until(db, [unit_id], ref_dt, sim_session)[unit_id]
 
-    Uses only services with request_datetime <= ref_dt (no future leakage)
-    plus active synthetic assignments in SimulationSession.
-    """
-    sim_busy = [
-        end
-        for start, end in _unit_assignment_windows(sim_session, unit_id)
-        if (start is None or start <= ref_dt) and end > ref_dt
-    ]
-    if sim_busy:
-        return max(sim_busy)
 
-    # Historical proxy: any service started at or before ref_dt that completes after ref_dt
-    hist_busy = db.execute(
-        select(RawService.completion_datetime)
-        .where(
-            RawService.assigned_unit_id == unit_id,
-            RawService.request_datetime <= ref_dt,
-            RawService.completion_datetime > ref_dt,
+def get_units_workload_windows(
+    db: Session,
+    unit_ids: Collection[str],
+    ref_dt: datetime,
+) -> dict[str, WorkloadWindows]:
+    """Services per unit in the 4h/8h/12h windows strictly before ref_dt."""
+    cutoff = ref_dt - timedelta(hours=max(WINDOW_HOURS))
+    stamps: dict[str, list[datetime]] = defaultdict(list)
+    for unit_id, request_dt in db.execute(
+        select(RawService.assigned_unit_id, RawService.request_datetime).where(
+            RawService.assigned_unit_id.in_(unit_ids),
+            RawService.request_datetime >= cutoff,
+            RawService.request_datetime < ref_dt,
         )
-        .order_by(RawService.completion_datetime.desc())
-        .limit(1)
-    ).scalar_one_or_none()
-    return hist_busy
+    ):
+        stamps[unit_id].append(request_dt)
+    return {unit_id: window_counts(stamps.get(unit_id, []), ref_dt) for unit_id in unit_ids}
 
 
 def _unit_assignment_windows(
@@ -86,34 +120,6 @@ def _unit_assignment_windows(
     return windows
 
 
-def get_unit_workload_windows(
-    db: Session,
-    unit_id: str,
-    ref_dt: datetime,
-) -> tuple[int, int, int]:
-    """Count services assigned to unit_id in the 4h, 8h, and 12h windows strictly before ref_dt."""
-    cutoff_12h = ref_dt - timedelta(hours=12)
-    cutoff_8h = ref_dt - timedelta(hours=8)
-    cutoff_4h = ref_dt - timedelta(hours=4)
-
-    rows = (
-        db.execute(
-            select(RawService.request_datetime).where(
-                RawService.assigned_unit_id == unit_id,
-                RawService.request_datetime >= cutoff_12h,
-                RawService.request_datetime < ref_dt,
-            )
-        )
-        .scalars()
-        .all()
-    )
-
-    w12 = len(rows)
-    w8 = sum(1 for dt in rows if dt >= cutoff_8h)
-    w4 = sum(1 for dt in rows if dt >= cutoff_4h)
-    return w4, w8, w12
-
-
 def mark_unit_assigned_in_simulation(
     db: Session,
     unit_id: str,
@@ -138,6 +144,6 @@ def mark_unit_assigned_in_simulation(
     sim.active_assignments_json = assignments  # reassign so SQLAlchemy detects the change
     if start_dt > sim.current_sim_datetime:
         sim.current_sim_datetime = start_dt
-    sim.updated_at = datetime.now(UTC).replace(tzinfo=None)
+    sim.updated_at = utcnow()
     db.add(sim)
     return sim

@@ -1,28 +1,63 @@
+"""Node 2 — Eligibility engine: A(i,j) = E(i,j) · S(j,t) · D(j,t) ∈ {0, 1}.
+
+Hard constraints: no MCDM score can compensate them. Every excluded unit keeps its
+reasons (code + human-readable message).
+"""
+
 from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.domain.enums import ExclusionCode
+from app.domain.temporal import shift_covers_hour
 from app.models.raw import RawService, RawServiceRule, RawUnit
 from app.schemas.dispatch import EligibilityEvaluation, ExclusionReason, UnitStatusOut
 from app.services.simulation_service import (
     get_or_create_simulation_session,
-    get_unit_busy_until,
-    get_unit_workload_windows,
+    get_units_busy_until,
+    get_units_workload_windows,
 )
 
+NO_RULE_RANK = 99
 
-def shift_covers_hour(shift: str, hour: int) -> bool:
-    """Evaluate S(j, t): whether the unit's shift covers the request hour."""
-    if shift == "FULL_24H":
-        return True
-    if shift == "MORNING":
-        return 6 <= hour < 14
-    if shift == "AFTERNOON":
-        return 14 <= hour < 22
-    if shift == "NIGHT":
-        return hour >= 22 or hour < 6
-    return False
+
+def _exclusions(
+    unit: RawUnit,
+    rule: RawServiceRule | None,
+    service_type: str,
+    ref_dt: datetime,
+    busy_until: datetime | None,
+) -> list[tuple[ExclusionCode, str]]:
+    reasons: list[tuple[ExclusionCode, str]] = []
+    if not unit.active:  # E
+        reasons.append((ExclusionCode.INACTIVE, "Unidad fuera de servicio operativo"))
+    if rule is None:  # E
+        reasons.append(
+            (
+                ExclusionCode.INCOMPATIBLE_TYPE,
+                f"Tipo {unit.unit_type} no compatible con {service_type}",
+            )
+        )
+    elif unit.capacity < rule.min_capacity:  # E
+        reasons.append(
+            (
+                ExclusionCode.INSUFFICIENT_CAPACITY,
+                f"Capacidad {unit.capacity} < requerida {rule.min_capacity}",
+            )
+        )
+    if not shift_covers_hour(unit.shift, ref_dt.hour):  # S
+        reasons.append(
+            (ExclusionCode.OUT_OF_SHIFT, f"Turno {unit.shift} no cubre las {ref_dt.hour:02d}:00")
+        )
+    if busy_until is not None:  # D
+        reasons.append(
+            (
+                ExclusionCode.BUSY_IN_SIMULATION,
+                f"Ocupada hasta {busy_until.strftime('%Y-%m-%d %H:%M')}",
+            )
+        )
+    return reasons
 
 
 def evaluate_eligibility(
@@ -30,9 +65,8 @@ def evaluate_eligibility(
     service: RawService,
     eval_dt: datetime | None = None,
 ) -> tuple[EligibilityEvaluation, dict[str, int]]:
-    """Evaluate A(i,j) = E(i,j) * S(j,t) * D(j,t) for all units.
+    """Evaluate A(i,j) for all units.
 
-    Hard constraints can never be compensated by MCDM scores.
     Returns (EligibilityEvaluation, compatibility_rank_by_unit_id).
     """
     ref_dt = eval_dt or service.request_datetime
@@ -46,52 +80,32 @@ def evaluate_eligibility(
                 RawServiceRule.service_type == service.service_type,
                 RawServiceRule.compatible.is_(True),
             )
-        )
-        .scalars()
-        .all()
+        ).scalars()
     }
+    unit_ids = [u.unit_id for u in units]
+    busy = get_units_busy_until(db, unit_ids, ref_dt, sim_session)
+    workloads = get_units_workload_windows(db, unit_ids, ref_dt)
 
     eligible_units: list[UnitStatusOut] = []
     excluded_units: list[ExclusionReason] = []
     compat_ranks: dict[str, int] = {}
 
     for unit in units:
-        reasons: list[str] = []
-
-        if not unit.active:
-            reasons.append("INACTIVE: Unidad fuera de servicio operativo")
-
         rule = rules.get(unit.unit_type)
-        if rule is None:
-            reasons.append(
-                f"INCOMPATIBLE_TYPE: Tipo {unit.unit_type} no compatible con {service.service_type}"
-            )
-        elif unit.capacity < rule.min_capacity:
-            reasons.append(
-                f"INSUFFICIENT_CAPACITY: Capacidad {unit.capacity} < requerida {rule.min_capacity}"
-            )
-
-        if not shift_covers_hour(unit.shift, ref_dt.hour):
-            reasons.append(f"OUT_OF_SHIFT: Turno {unit.shift} no cubre las {ref_dt.hour:02d}:00")
-
-        busy_until = get_unit_busy_until(db, unit.unit_id, ref_dt, sim_session)
-        if busy_until is not None:
-            reasons.append(
-                f"BUSY_IN_SIMULATION: Ocupada hasta {busy_until.strftime('%Y-%m-%d %H:%M')}"
-            )
-
+        reasons = _exclusions(unit, rule, service.service_type, ref_dt, busy[unit.unit_id])
         if reasons:
             excluded_units.append(
                 ExclusionReason(
                     unit_id=unit.unit_id,
                     unit_code=unit.unit_code,
                     unit_type=unit.unit_type,
-                    reasons=reasons,
+                    reason_codes=[code for code, _ in reasons],
+                    reasons=[f"{code}: {msg}" for code, msg in reasons],
                 )
             )
             continue
 
-        w4, w8, w12 = get_unit_workload_windows(db, unit.unit_id, ref_dt)
+        w4, w8, w12 = workloads[unit.unit_id]
         eligible_units.append(
             UnitStatusOut(
                 unit_id=unit.unit_id,
@@ -108,7 +122,7 @@ def evaluate_eligibility(
                 workload_12h=w12,
             )
         )
-        compat_ranks[unit.unit_id] = rule.priority_rank if rule else 99
+        compat_ranks[unit.unit_id] = rule.priority_rank if rule else NO_RULE_RANK
 
     return (
         EligibilityEvaluation(

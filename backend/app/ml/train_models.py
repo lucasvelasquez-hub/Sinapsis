@@ -18,6 +18,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
@@ -30,6 +31,13 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import SessionLocal, engine
+from app.ml.baseline import ContextualStatisticalBaseline
+from app.ml.features import (
+    CATEGORICAL_COLUMNS,
+    FEATURE_COLUMNS,
+    NUMERIC_COLUMNS,
+    build_feature_frame,
+)
 from app.models.analytics import PredictionResult
 
 ARTIFACT_PATH = Path(__file__).resolve().parent / "model_artifact.pkl"
@@ -45,44 +53,6 @@ def compute_metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     }
 
 
-class ContextualStatisticalBaseline:
-    """Hierarchical median lookup.
-
-    (urgency, service_type, zone) -> (urgency, service_type) -> urgency -> global.
-    """
-
-    def __init__(self) -> None:
-        self.lvl3: dict[tuple[str, str, str], float] = {}
-        self.lvl2: dict[tuple[str, str], float] = {}
-        self.lvl1: dict[str, float] = {}
-        self.global_median: float = 20.0
-
-    def fit(self, df: pd.DataFrame, target_col: str = "response_time_min") -> None:
-        self.global_median = float(df[target_col].median())
-        self.lvl1 = df.groupby("urgency_level")[target_col].median().to_dict()
-        self.lvl2 = df.groupby(["urgency_level", "service_type"])[target_col].median().to_dict()
-        self.lvl3 = (
-            df.groupby(["urgency_level", "service_type", "zone_id"])[target_col].median().to_dict()
-        )
-
-    def predict_one(self, urgency: str, service_type: str, zone_id: str) -> float:
-        if (urgency, service_type, zone_id) in self.lvl3:
-            return float(self.lvl3[(urgency, service_type, zone_id)])
-        if (urgency, service_type) in self.lvl2:
-            return float(self.lvl2[(urgency, service_type)])
-        if urgency in self.lvl1:
-            return float(self.lvl1[urgency])
-        return self.global_median
-
-    def predict(self, df: pd.DataFrame) -> np.ndarray:
-        return np.array(
-            [
-                self.predict_one(r.urgency_level, r.service_type, r.zone_id)
-                for r in df.itertuples(index=False)
-            ]
-        )
-
-
 def train_and_evaluate() -> dict:
     query = """
         SELECT
@@ -95,21 +65,16 @@ def train_and_evaluate() -> dict:
             u.unit_type,
             u.base_zone_id,
             u.shift,
-            u.capacity,
-            f.hour_of_day,
-            f.day_of_week,
-            f.is_weekend,
-            f.is_peak_hour
+            u.capacity
         FROM raw.services s
         JOIN raw.units u ON s.assigned_unit_id = u.unit_id
-        JOIN analytics.service_features f ON s.service_id = f.service_id
         WHERE s.response_time_min IS NOT NULL
         ORDER BY s.request_datetime ASC, s.service_id ASC
     """
-    df = pd.read_sql(query, engine)
-    df["same_zone"] = (df["zone_id"] == df["base_zone_id"]).astype(int)
-    df["is_weekend"] = df["is_weekend"].astype(int)
-    df["is_peak_hour"] = df["is_peak_hour"].astype(int)
+    raw = pd.read_sql(query, engine)
+    # Same feature construction as serving (prediction_service): no train/serve skew.
+    df = build_feature_frame(raw.to_dict("records"))
+    df["response_time_min"] = raw["response_time_min"].to_numpy()
 
     n = len(df)
     train_end = int(n * 0.70)
@@ -119,9 +84,9 @@ def train_and_evaluate() -> dict:
     val_df = df.iloc[train_end:val_end].copy()
     test_df = df.iloc[val_end:].copy()
 
-    cat_cols = ["urgency_level", "service_type", "zone_id", "unit_type", "base_zone_id", "shift"]
-    num_cols = ["hour_of_day", "day_of_week", "is_weekend", "is_peak_hour", "capacity", "same_zone"]
-    feature_cols = cat_cols + num_cols
+    cat_cols = CATEGORICAL_COLUMNS
+    num_cols = NUMERIC_COLUMNS
+    feature_cols = FEATURE_COLUMNS
 
     # 1. Statistical Baseline
     baseline = ContextualStatisticalBaseline()
@@ -137,7 +102,7 @@ def train_and_evaluate() -> dict:
     )
 
     # 2. Ridge Linear Regression
-    lin_pipe = Pipeline([("prep", preprocessor), ("model", Ridge(alpha=1.0))])
+    lin_pipe = Pipeline([("prep", clone(preprocessor)), ("model", Ridge(alpha=1.0))])
     lin_pipe.fit(train_df[feature_cols], train_df["response_time_min"])
     lin_val = compute_metrics(
         val_df["response_time_min"].to_numpy(), lin_pipe.predict(val_df[feature_cols])
@@ -205,12 +170,7 @@ def train_and_evaluate() -> dict:
 
     artifact = {
         "selected_model_name": best_name,
-        "baseline_data": {
-            "lvl3": baseline.lvl3,
-            "lvl2": baseline.lvl2,
-            "lvl1": baseline.lvl1,
-            "global_median": baseline.global_median,
-        },
+        "baseline_data": baseline.to_dict(),
         "ml_model": rf_pipe
         if best_name == "random_forest_regressor"
         else (lin_pipe if best_name == "linear_regression_ridge" else None),

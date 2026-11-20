@@ -1,6 +1,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.domain.enums import ServiceStatus
 from app.models.analytics import DemandAggregate, PredictionResult, ServiceFeature
 from app.models.decision import DispatchDecision
 from app.models.raw import RawService, RawUnit
@@ -10,13 +11,15 @@ from app.schemas.analytics import (
     DemandBucketOut,
     ModelMetricOut,
 )
-from app.services.simulation_service import get_or_create_simulation_session, get_unit_busy_until
+from app.services.simulation_service import get_or_create_simulation_session, get_units_busy_until
 
 
 def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
     total_services = db.execute(select(func.count()).select_from(RawService)).scalar_one()
     pending_requests = db.execute(
-        select(func.count()).select_from(RawService).where(RawService.status == "PENDING")
+        select(func.count())
+        .select_from(RawService)
+        .where(RawService.status == ServiceStatus.PENDING)
     ).scalar_one()
 
     avg_resp = (
@@ -38,11 +41,8 @@ def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
 
     units = db.execute(select(RawUnit)).scalars().all()
     sim = get_or_create_simulation_session(db)
-    available_count = sum(
-        1
-        for u in units
-        if u.active and get_unit_busy_until(db, u.unit_id, sim.current_sim_datetime, sim) is None
-    )
+    busy = get_units_busy_until(db, [u.unit_id for u in units], sim.current_sim_datetime, sim)
+    available_count = sum(1 for u in units if u.active and busy[u.unit_id] is None)
 
     total_decisions = db.execute(select(func.count()).select_from(DispatchDecision)).scalar_one()
     accepted_decisions = db.execute(
@@ -55,18 +55,7 @@ def get_analytics_overview(db: Session) -> AnalyticsOverviewOut:
     selected_model = next(
         (m.model_name for m in metrics_rows if m.is_selected), "statistical_baseline"
     )
-    model_metrics = [
-        ModelMetricOut(
-            model_name=m.model_name,
-            split_name=m.split_name,
-            mae=m.mae,
-            median_ae=m.median_ae,
-            p90_ae=m.p90_ae,
-            rmse=m.rmse,
-            is_selected=m.is_selected,
-        )
-        for m in metrics_rows
-    ]
+    model_metrics = [ModelMetricOut.model_validate(m) for m in metrics_rows]
 
     return AnalyticsOverviewOut(
         total_services=int(total_services),

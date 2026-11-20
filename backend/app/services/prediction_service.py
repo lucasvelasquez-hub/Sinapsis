@@ -1,77 +1,69 @@
+"""Node 4 — contextual expected response time (PREDICHO), never an individual GPS ETA."""
+
 import pickle
+from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
-import pandas as pd
-
+from app.ml.baseline import ContextualStatisticalBaseline
+from app.ml.features import build_feature_frame
 from app.models.raw import RawService
 from app.schemas.dispatch import UnitStatusOut
 
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "ml" / "model_artifact.pkl"
 
+BASELINE_LABEL = "HISTORICAL_CONTEXTUAL_BASELINE"
+ML_LABEL = "ML_CONTEXTUAL_PREDICTION"
+PREDICTION_BOUNDS_MIN = (2.0, 120.0)
+# Only used when no trained artifact exists (fresh checkout before train_models.py).
+FALLBACK_BY_URGENCY = {"CRITICAL": 8.0, "HIGH": 14.0, "MEDIUM": 25.0, "LOW": 42.0}
+FALLBACK_DEFAULT = 24.0
+
+Prediction = tuple[float, str]  # (minutes, estimation_type)
+
 
 @lru_cache(maxsize=1)
-def _load_artifact() -> dict | None:
+def _load_artifact() -> dict[str, Any] | None:
     if not ARTIFACT_PATH.exists():
         return None
     with ARTIFACT_PATH.open("rb") as f:
         return pickle.load(f)
 
 
-def predict_expected_response(
-    service: RawService,
-    unit: UnitStatusOut,
-) -> tuple[float, str]:
-    """Predict contextual expected response time (minutes) and return estimation_type.
-
-    Never invents individual GPS-based ETA; explicitly labels predictions as
-    ML contextual prediction or historical contextual baseline.
-    """
+def predict_expected_responses(
+    service: RawService, units: Sequence[UnitStatusOut]
+) -> list[Prediction]:
+    """Predict for every (service, unit) pair in one model call."""
+    if not units:
+        return []
     artifact = _load_artifact()
     if artifact is None:
-        fallback = {"CRITICAL": 8.0, "HIGH": 14.0, "MEDIUM": 25.0, "LOW": 42.0}.get(
-            service.urgency_level, 24.0
-        )
-        return fallback, "HISTORICAL_CONTEXTUAL_BASELINE"
+        value = FALLBACK_BY_URGENCY.get(service.urgency_level, FALLBACK_DEFAULT)
+        return [(value, BASELINE_LABEL)] * len(units)
 
     selected_name = artifact.get("selected_model_name", "statistical_baseline")
     ml_model = artifact.get("ml_model")
-    bdata = artifact["baseline_data"]
-
     if ml_model is not None and selected_name != "statistical_baseline":
-        dt = service.request_datetime
-        hour = dt.hour
-        dow = dt.weekday()
-        row_df = pd.DataFrame(
-            [
-                {
-                    "urgency_level": service.urgency_level,
-                    "service_type": service.service_type,
-                    "zone_id": service.zone_id,
-                    "unit_type": unit.unit_type,
-                    "base_zone_id": unit.base_zone_id,
-                    "shift": unit.shift,
-                    "hour_of_day": hour,
-                    "day_of_week": dow,
-                    "is_weekend": int(dow >= 5),
-                    "is_peak_hour": int((7 <= hour <= 10) or (17 <= hour <= 20)),
-                    "capacity": unit.capacity,
-                    "same_zone": int(service.zone_id == unit.base_zone_id),
-                }
-            ]
+        frame = build_feature_frame(
+            {
+                "request_datetime": service.request_datetime,
+                "urgency_level": service.urgency_level,
+                "service_type": service.service_type,
+                "zone_id": service.zone_id,
+                "unit_type": u.unit_type,
+                "base_zone_id": u.base_zone_id,
+                "shift": u.shift,
+                "capacity": u.capacity,
+            }
+            for u in units
         )
-        pred = float(ml_model.predict(row_df)[0])
-        pred = max(2.0, min(120.0, round(pred, 2)))
-        return pred, f"ML_CONTEXTUAL_PREDICTION ({selected_name})"
+        low, high = PREDICTION_BOUNDS_MIN
+        label = f"{ML_LABEL} ({selected_name})"
+        return [(max(low, min(high, round(float(p), 2))), label) for p in ml_model.predict(frame)]
 
-    key3 = (service.urgency_level, service.service_type, service.zone_id)
-    key2 = (service.urgency_level, service.service_type)
-    if key3 in bdata["lvl3"]:
-        pred = bdata["lvl3"][key3]
-    elif key2 in bdata["lvl2"]:
-        pred = bdata["lvl2"][key2]
-    elif service.urgency_level in bdata["lvl1"]:
-        pred = bdata["lvl1"][service.urgency_level]
-    else:
-        pred = bdata["global_median"]
-    return round(float(pred), 2), "HISTORICAL_CONTEXTUAL_BASELINE"
+    baseline = ContextualStatisticalBaseline.from_dict(artifact["baseline_data"])
+    value = round(
+        baseline.predict_one(service.urgency_level, service.service_type, service.zone_id), 2
+    )
+    return [(value, BASELINE_LABEL)] * len(units)

@@ -1,7 +1,9 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class ModelMetricOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True, protected_namespaces=())
+
     model_name: str
     split_name: str
     mae: float

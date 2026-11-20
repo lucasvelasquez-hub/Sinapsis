@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 from collections import defaultdict, deque
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pandas as pd
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.domain.temporal import temporal_context, utcnow, window_counts
 from app.models.analytics import DemandAggregate, ServiceFeature
 from app.models.raw import RawResponseTarget, RawService
 
@@ -35,7 +36,7 @@ def compute_chronological_features(db: Session) -> int:
     db.execute(delete(DemandAggregate))
 
     zone_windows_12h: dict[str, deque[datetime]] = defaultdict(deque)
-    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    now_utc = utcnow()
 
     feature_rows: list[ServiceFeature] = []
     agg_records: list[dict] = []
@@ -47,20 +48,13 @@ def compute_chronological_features(db: Session) -> int:
         while q and q[0] < cutoff_12h:
             q.popleft()
 
-        cutoff_8h = req_dt - timedelta(hours=8)
-        cutoff_4h = req_dt - timedelta(hours=4)
-
-        d12 = len(q)
-        d8 = sum(1 for ts in q if ts >= cutoff_8h)
-        d4 = sum(1 for ts in q if ts >= cutoff_4h)
+        d4, d8, d12 = window_counts(q, req_dt)
 
         # Append AFTER counting so the current request is never counted in its own past window
         q.append(req_dt)
 
-        hour = req_dt.hour
-        dow = req_dt.weekday()
-        is_weekend = dow >= 5
-        is_peak = (7 <= hour <= 10) or (17 <= hour <= 20)
+        ctx = temporal_context(req_dt)
+        hour = ctx.hour_of_day
         target_min = targets.get(srv.urgency_level, 30)
         sla_met = (
             bool(srv.response_time_min <= target_min) if srv.response_time_min is not None else None
@@ -69,10 +63,10 @@ def compute_chronological_features(db: Session) -> int:
         feature_rows.append(
             ServiceFeature(
                 service_id=srv.service_id,
-                hour_of_day=hour,
-                day_of_week=dow,
-                is_weekend=is_weekend,
-                is_peak_hour=is_peak,
+                hour_of_day=ctx.hour_of_day,
+                day_of_week=ctx.day_of_week,
+                is_weekend=ctx.is_weekend,
+                is_peak_hour=ctx.is_peak_hour,
                 zone_demand_4h=d4,
                 zone_demand_8h=d8,
                 zone_demand_12h=d12,

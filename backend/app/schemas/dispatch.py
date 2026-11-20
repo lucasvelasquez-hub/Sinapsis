@@ -1,7 +1,9 @@
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from app.domain.enums import ExclusionCode, RecommendationStatus, ServiceStatus
 
 UrgencyLevel = Literal["CRITICAL", "HIGH", "MEDIUM", "LOW"]
 ServiceType = Literal[
@@ -13,13 +15,19 @@ ServiceType = Literal[
 ]
 
 
-class RequestSummary(BaseModel):
+class ORMModel(BaseModel):
+    """Output schema readable straight from an ORM object (`Model.model_validate(orm)`)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class RequestSummary(ORMModel):
     service_id: str
     request_datetime: datetime
-    urgency_level: str
-    service_type: str
+    urgency_level: UrgencyLevel
+    service_type: ServiceType
     zone_id: str
-    status: str
+    status: ServiceStatus
     is_synthetic: bool
     assigned_unit_id: str | None = None
     response_time_min: float | None = None
@@ -80,7 +88,17 @@ class ExclusionReason(BaseModel):
     unit_id: str
     unit_code: str
     unit_type: str
-    reasons: list[str]
+    reason_codes: list[ExclusionCode]
+    reasons: list[str]  # "<CODE>: <mensaje legible>", alineado con reason_codes
+
+    @model_validator(mode="before")
+    @classmethod
+    def _derive_codes_from_legacy_reasons(cls, data: Any) -> Any:
+        # Exclusiones persistidas antes de reason_codes solo guardan el texto.
+        if isinstance(data, dict) and "reason_codes" not in data:
+            reasons = data.get("reasons") or []
+            data = {**data, "reason_codes": [r.split(":", 1)[0] for r in reasons]}
+        return data
 
 
 class EligibilityEvaluation(BaseModel):
@@ -115,7 +133,7 @@ class RecommendationOut(BaseModel):
     recommendation_id: str
     service_id: str
     simulation_datetime: datetime
-    status: str
+    status: RecommendationStatus
     eligible_count: int
     excluded_count: int
     weights: dict[str, float]
@@ -132,12 +150,16 @@ class DecisionCreate(BaseModel):
     recommendation_id: str | None = None
     recommended_unit_id: str | None = None
     assigned_unit_id: str | None = None
-    recommendation_score: float | None = None
+    recommendation_score: float | None = Field(
+        default=None,
+        deprecated=True,
+        description="Ignorado: el score se toma de la recomendación persistida.",
+    )
     accepted: bool
     rejection_reason: str | None = None
 
 
-class DecisionOut(BaseModel):
+class DecisionOut(ORMModel):
     decision_id: str
     service_id: str
     recommendation_id: str | None
@@ -150,7 +172,7 @@ class DecisionOut(BaseModel):
     decision_datetime: datetime
 
 
-class ScoringConfigOut(BaseModel):
+class ScoringConfigOut(ORMModel):
     config_id: str
     weight_time: float
     weight_workload: float
@@ -164,3 +186,10 @@ class ScoringConfigOut(BaseModel):
 class ScoringConfigUpdate(BaseModel):
     weight_time: float = Field(..., ge=0.0, le=1.0)
     weight_workload: float = Field(..., ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _weights_sum_to_one(self) -> "ScoringConfigUpdate":
+        # MVP: solo tiempo y carga (costo y cobertura desactivados por falta de GPS).
+        if abs(self.weight_time + self.weight_workload - 1.0) > 1e-3:
+            raise ValueError("weight_time + weight_workload debe sumar 1.0")
+        return self

@@ -54,10 +54,19 @@ export interface UnitStatus {
   workload_12h: number;
 }
 
+export type ExclusionCode =
+  | "INACTIVE"
+  | "INCOMPATIBLE_TYPE"
+  | "INSUFFICIENT_CAPACITY"
+  | "OUT_OF_SHIFT"
+  | "BUSY_IN_SIMULATION";
+
 export interface ExclusionReason {
   unit_id: string;
   unit_code: string;
   unit_type: string;
+  /** Códigos estructurados, alineados con `reasons`. */
+  reason_codes: ExclusionCode[];
   reasons: string[];
 }
 

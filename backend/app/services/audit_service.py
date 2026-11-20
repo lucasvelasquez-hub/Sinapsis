@@ -1,8 +1,8 @@
 import uuid
-from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session
 
+from app.domain.temporal import utcnow
 from app.models.core import AuditEvent
 
 
@@ -20,7 +20,7 @@ def record_audit_event(
         entity_type=entity_type,
         entity_id=entity_id,
         payload_json=payload or {},
-        created_at=datetime.now(UTC).replace(tzinfo=None),
+        created_at=utcnow(),
     )
     db.add(event)
     return event

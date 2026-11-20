@@ -1,26 +1,119 @@
+"""Node 5 — Recommendation engine: explainable Top 3, or explicit NO_ELIGIBLE_UNITS.
+
+Pipeline: eligibility (Node 2) -> prediction (Node 4) -> MCDM scoring (Node 3) -> Top 3.
+CORE only recommends: the dispatch itself is a human decision (decision_service).
+"""
+
 import uuid
-from datetime import UTC, datetime
+from dataclasses import dataclass
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.domain.enums import RecommendationStatus
+from app.domain.temporal import utcnow
 from app.models.decision import Recommendation, RecommendationCandidate
 from app.models.raw import RawService, RawUnit
 from app.schemas.dispatch import (
+    EligibilityEvaluation,
     ExclusionReason,
     RecommendationCandidateOut,
     RecommendationOut,
+    UnitStatusOut,
 )
 from app.services.audit_service import record_audit_event
-from app.services.eligibility_service import evaluate_eligibility
-from app.services.prediction_service import predict_expected_response
+from app.services.eligibility_service import NO_RULE_RANK, evaluate_eligibility
+from app.services.prediction_service import predict_expected_responses
 from app.services.scoring_service import (
     compute_mcdm_score,
     compute_raw_workload_index,
     get_scoring_config,
     normalize_min_max_0_100,
 )
+
+TOP_N = 3
+STANDARD_WARNINGS = (
+    "Sin GPS/coordenadas: tiempo esperado es contextual histórico, no ETA individual.",
+    "Disponibilidad simulada basada en cierre histórico como proxy de ocupación.",
+)
+
+
+@dataclass(frozen=True)
+class ScoredCandidate:
+    unit: UnitStatusOut
+    score: float
+    time_penalty: float
+    workload_penalty: float
+    expected_response_min: float
+    estimation_type: str
+    compatibility_rank: int
+    factors: list[str]
+    warnings: list[str]
+
+    @property
+    def sort_key(self) -> tuple[float, int, float]:
+        # Lower score is better; deterministic tie-break.
+        return (self.score, self.compatibility_rank, self.expected_response_min)
+
+
+def explain(
+    service: RawService, unit: UnitStatusOut, compat_rank: int
+) -> tuple[list[str], list[str]]:
+    """Human-readable factors and warnings for one candidate."""
+    factors: list[str] = []
+    if unit.base_zone_id == service.zone_id:
+        factors.append(f"Base operativa en la misma zona ({unit.base_zone_id})")
+    if compat_rank == 1:
+        factors.append(f"Compatibilidad primaria (Rango {compat_rank}) para {service.service_type}")
+    else:
+        factors.append(f"Compatibilidad válida (Rango {compat_rank}) con {service.service_type}")
+    if unit.workload_4h == 0:
+        factors.append("Sin carga en las últimas 4 horas (tripulación descansada)")
+    else:
+        factors.append(f"Carga reciente moderada: {unit.workload_4h} servicios en 4h")
+
+    warnings = list(STANDARD_WARNINGS)
+    if unit.base_zone_id != service.zone_id:
+        warnings.append(f"Unidad asignada a base {unit.base_zone_id} (fuera de {service.zone_id}).")
+    return factors, warnings
+
+
+def score_candidates(
+    service: RawService,
+    eligibility: EligibilityEvaluation,
+    compat_ranks: dict[str, int],
+    weight_time: float,
+    weight_workload: float,
+) -> list[ScoredCandidate]:
+    """J(j) = w_T·T(j) + w_L·L(j) over eligible units, sorted best first."""
+    units = eligibility.eligible_units
+    predictions = predict_expected_responses(service, units)
+    norm_time = normalize_min_max_0_100([minutes for minutes, _ in predictions])
+    norm_workload = normalize_min_max_0_100(
+        [compute_raw_workload_index(u.workload_4h, u.workload_8h, u.workload_12h) for u in units]
+    )
+
+    scored: list[ScoredCandidate] = []
+    for unit, (minutes, est_type), t_pen, l_pen in zip(
+        units, predictions, norm_time, norm_workload, strict=True
+    ):
+        compat_rank = compat_ranks.get(unit.unit_id, NO_RULE_RANK)
+        factors, warnings = explain(service, unit, compat_rank)
+        scored.append(
+            ScoredCandidate(
+                unit=unit,
+                score=compute_mcdm_score(t_pen, l_pen, weight_time, weight_workload),
+                time_penalty=t_pen,
+                workload_penalty=l_pen,
+                expected_response_min=minutes,
+                estimation_type=est_type,
+                compatibility_rank=compat_rank,
+                factors=factors,
+                warnings=warnings,
+            )
+        )
+    return sorted(scored, key=lambda c: c.sort_key)
 
 
 def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
@@ -36,190 +129,67 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
         "cost": cfg.weight_cost,
         "coverage": cfg.weight_coverage,
     }
-
     eligibility, compat_ranks = evaluate_eligibility(db, service, service.request_datetime)
-    rec_id = str(uuid.uuid4())
-    now_utc = datetime.now(UTC).replace(tzinfo=None)
-
-    if not eligibility.eligible_units:
-        rec = Recommendation(
-            recommendation_id=rec_id,
-            service_id=service.service_id,
-            simulation_datetime=eligibility.evaluation_datetime,
-            status="NO_ELIGIBLE_UNITS",
-            eligible_count=0,
-            excluded_count=len(eligibility.excluded_units),
-            weights_json=weights,
-            exclusions_json=[e.model_dump() for e in eligibility.excluded_units],
-            created_at=now_utc,
-        )
-        db.add(rec)
-        record_audit_event(
-            db,
-            event_type="RECOMMENDATION_NO_ELIGIBLE_UNITS",
-            entity_type="recommendation",
-            entity_id=rec_id,
-            payload={
-                "service_id": service.service_id,
-                "excluded_count": len(eligibility.excluded_units),
-            },
-        )
-        db.commit()
-        return RecommendationOut(
-            recommendation_id=rec_id,
-            service_id=service.service_id,
-            simulation_datetime=eligibility.evaluation_datetime,
-            status="NO_ELIGIBLE_UNITS",
-            eligible_count=0,
-            excluded_count=len(eligibility.excluded_units),
-            weights=weights,
-            candidates=[],
-            excluded_units=eligibility.excluded_units,
-        )
-
-    raw_predictions: list[tuple[float, str]] = []
-    raw_workloads: list[float] = []
-    for unit in eligibility.eligible_units:
-        pred_min, est_type = predict_expected_response(service, unit)
-        raw_predictions.append((pred_min, est_type))
-        raw_workloads.append(
-            compute_raw_workload_index(unit.workload_4h, unit.workload_8h, unit.workload_12h)
-        )
-
-    norm_time = normalize_min_max_0_100([p[0] for p in raw_predictions])
-    norm_workload = normalize_min_max_0_100(raw_workloads)
-
-    scored_items = []
-    for idx, unit in enumerate(eligibility.eligible_units):
-        t_pen = norm_time[idx]
-        l_pen = norm_workload[idx]
-        score = compute_mcdm_score(t_pen, l_pen, cfg.weight_time, cfg.weight_workload)
-        pred_min, est_type = raw_predictions[idx]
-        c_rank = compat_ranks.get(unit.unit_id, 99)
-
-        factors: list[str] = []
-        if unit.base_zone_id == service.zone_id:
-            factors.append(f"Base operativa en la misma zona ({unit.base_zone_id})")
-        if c_rank == 1:
-            factors.append(f"Compatibilidad primaria (Rango {c_rank}) para {service.service_type}")
-        else:
-            factors.append(f"Compatibilidad válida (Rango {c_rank}) con {service.service_type}")
-        if unit.workload_4h == 0:
-            factors.append("Sin carga en las últimas 4 horas (tripulación descansada)")
-        else:
-            factors.append(f"Carga reciente moderada: {unit.workload_4h} servicios en 4h")
-
-        warnings: list[str] = [
-            "Sin GPS/coordenadas: tiempo esperado es contextual histórico, no ETA individual.",
-            "Disponibilidad simulada basada en cierre histórico como proxy de ocupación.",
-        ]
-        if unit.base_zone_id != service.zone_id:
-            warnings.append(
-                f"Unidad asignada a base {unit.base_zone_id} (fuera de {service.zone_id})."
-            )
-
-        scored_items.append(
-            {
-                "unit": unit,
-                "score": score,
-                "time_penalty": t_pen,
-                "workload_penalty": l_pen,
-                "expected_response_min": pred_min,
-                "estimation_type": est_type,
-                "compatibility_rank": c_rank,
-                "factors": factors,
-                "warnings": warnings,
-            }
-        )
-
-    # Score ascending (lower is better); tie-break: compatibility_rank, expected_response_min
-    scored_items.sort(
-        key=lambda x: (x["score"], x["compatibility_rank"], x["expected_response_min"])
-    )
-    top3 = scored_items[:3]
+    top = score_candidates(
+        service, eligibility, compat_ranks, cfg.weight_time, cfg.weight_workload
+    )[:TOP_N]
+    status = RecommendationStatus.GENERATED if top else RecommendationStatus.NO_ELIGIBLE_UNITS
 
     rec = Recommendation(
-        recommendation_id=rec_id,
+        recommendation_id=str(uuid.uuid4()),
         service_id=service.service_id,
         simulation_datetime=eligibility.evaluation_datetime,
-        status="GENERATED",
+        status=status,
         eligible_count=len(eligibility.eligible_units),
         excluded_count=len(eligibility.excluded_units),
         weights_json=weights,
-        exclusions_json=[e.model_dump() for e in eligibility.excluded_units],
-        created_at=now_utc,
+        exclusions_json=[e.model_dump(mode="json") for e in eligibility.excluded_units],
+        created_at=utcnow(),
     )
     db.add(rec)
-
-    candidate_outs: list[RecommendationCandidateOut] = []
-    for rank_idx, item in enumerate(top3, start=1):
-        u = item["unit"]
-        db.add(
-            RecommendationCandidate(
-                recommendation_id=rec_id,
-                unit_id=u.unit_id,
-                rank=rank_idx,
-                score=item["score"],
-                time_penalty=item["time_penalty"],
-                workload_penalty=item["workload_penalty"],
-                expected_response_min=item["expected_response_min"],
-                estimation_type=item["estimation_type"],
-                workload_4h=u.workload_4h,
-                workload_8h=u.workload_8h,
-                workload_12h=u.workload_12h,
-                compatibility_rank=item["compatibility_rank"],
-                simulated_available=True,
-                factors_json=item["factors"],
-                warnings_json=item["warnings"],
-            )
+    candidates = [
+        RecommendationCandidate(
+            recommendation_id=rec.recommendation_id,
+            unit_id=c.unit.unit_id,
+            rank=rank,
+            score=c.score,
+            time_penalty=c.time_penalty,
+            workload_penalty=c.workload_penalty,
+            expected_response_min=c.expected_response_min,
+            estimation_type=c.estimation_type,
+            workload_4h=c.unit.workload_4h,
+            workload_8h=c.unit.workload_8h,
+            workload_12h=c.unit.workload_12h,
+            compatibility_rank=c.compatibility_rank,
+            simulated_available=True,
+            factors_json=c.factors,
+            warnings_json=c.warnings,
         )
-        candidate_outs.append(
-            RecommendationCandidateOut(
-                unit_id=u.unit_id,
-                unit_code=u.unit_code,
-                unit_type=u.unit_type,
-                base_zone_id=u.base_zone_id,
-                shift=u.shift,
-                rank=rank_idx,
-                score=item["score"],
-                time_penalty=item["time_penalty"],
-                workload_penalty=item["workload_penalty"],
-                expected_response_min=item["expected_response_min"],
-                estimation_type=item["estimation_type"],
-                workload_4h=u.workload_4h,
-                workload_8h=u.workload_8h,
-                workload_12h=u.workload_12h,
-                compatibility_rank=item["compatibility_rank"],
-                simulated_available=True,
-                factors=item["factors"],
-                warnings=item["warnings"],
-            )
-        )
+        for rank, c in enumerate(top, start=1)
+    ]
+    db.add_all(candidates)
 
+    if status is RecommendationStatus.GENERATED:
+        audit_type = "RECOMMENDATION_GENERATED"
+        audit_payload = {
+            "service_id": service.service_id,
+            "eligible_count": rec.eligible_count,
+            "top_unit_id": top[0].unit.unit_id,
+        }
+    else:
+        audit_type = "RECOMMENDATION_NO_ELIGIBLE_UNITS"
+        audit_payload = {"service_id": service.service_id, "excluded_count": rec.excluded_count}
     record_audit_event(
         db,
-        event_type="RECOMMENDATION_GENERATED",
+        event_type=audit_type,
         entity_type="recommendation",
-        entity_id=rec_id,
-        payload={
-            "service_id": service.service_id,
-            "eligible_count": len(eligibility.eligible_units),
-            "top_unit_id": candidate_outs[0].unit_id if candidate_outs else None,
-        },
+        entity_id=rec.recommendation_id,
+        payload=audit_payload,
     )
     db.commit()
 
-    return RecommendationOut(
-        recommendation_id=rec_id,
-        service_id=service.service_id,
-        simulation_datetime=eligibility.evaluation_datetime,
-        status="GENERATED",
-        eligible_count=len(eligibility.eligible_units),
-        excluded_count=len(eligibility.excluded_units),
-        weights=weights,
-        candidates=candidate_outs,
-        excluded_units=eligibility.excluded_units,
-    )
+    units_by_id = {c.unit.unit_id: c.unit for c in top}
+    return _to_out(rec, candidates, units_by_id, eligibility.excluded_units)
 
 
 def get_recommendation_by_id(db: Session, recommendation_id: str) -> RecommendationOut:
@@ -227,7 +197,7 @@ def get_recommendation_by_id(db: Session, recommendation_id: str) -> Recommendat
     if rec is None:
         raise ResourceNotFoundError("Recommendation", recommendation_id)
 
-    cands = (
+    candidates = (
         db.execute(
             select(RecommendationCandidate)
             .where(RecommendationCandidate.recommendation_id == recommendation_id)
@@ -236,35 +206,45 @@ def get_recommendation_by_id(db: Session, recommendation_id: str) -> Recommendat
         .scalars()
         .all()
     )
+    units_by_id = {
+        u.unit_id: u
+        for u in db.execute(
+            select(RawUnit).where(RawUnit.unit_id.in_([c.unit_id for c in candidates]))
+        ).scalars()
+    }
+    excluded = [ExclusionReason.model_validate(e) for e in (rec.exclusions_json or [])]
+    return _to_out(rec, candidates, units_by_id, excluded)
 
-    units_map = {u.unit_id: u for u in db.execute(select(RawUnit)).scalars().all()}
-    candidate_outs = []
-    for c in cands:
-        u = units_map.get(c.unit_id)
-        candidate_outs.append(
-            RecommendationCandidateOut(
-                unit_id=c.unit_id,
-                unit_code=u.unit_code if u else c.unit_id,
-                unit_type=u.unit_type if u else "UNKNOWN",
-                base_zone_id=u.base_zone_id if u else "UNKNOWN",
-                shift=u.shift if u else "UNKNOWN",
-                rank=c.rank,
-                score=c.score,
-                time_penalty=c.time_penalty,
-                workload_penalty=c.workload_penalty,
-                expected_response_min=c.expected_response_min,
-                estimation_type=c.estimation_type,
-                workload_4h=c.workload_4h,
-                workload_8h=c.workload_8h,
-                workload_12h=c.workload_12h,
-                compatibility_rank=c.compatibility_rank,
-                simulated_available=c.simulated_available,
-                factors=c.factors_json or [],
-                warnings=c.warnings_json or [],
-            )
+
+def _to_out(
+    rec: Recommendation,
+    candidates: list[RecommendationCandidate],
+    units_by_id: dict[str, RawUnit | UnitStatusOut],
+    excluded: list[ExclusionReason],
+) -> RecommendationOut:
+    def candidate_out(c: RecommendationCandidate) -> RecommendationCandidateOut:
+        unit = units_by_id.get(c.unit_id)
+        return RecommendationCandidateOut(
+            unit_id=c.unit_id,
+            unit_code=unit.unit_code if unit else c.unit_id,
+            unit_type=unit.unit_type if unit else "UNKNOWN",
+            base_zone_id=unit.base_zone_id if unit else "UNKNOWN",
+            shift=unit.shift if unit else "UNKNOWN",
+            rank=c.rank,
+            score=c.score,
+            time_penalty=c.time_penalty,
+            workload_penalty=c.workload_penalty,
+            expected_response_min=c.expected_response_min,
+            estimation_type=c.estimation_type,
+            workload_4h=c.workload_4h,
+            workload_8h=c.workload_8h,
+            workload_12h=c.workload_12h,
+            compatibility_rank=c.compatibility_rank,
+            simulated_available=c.simulated_available,
+            factors=c.factors_json or [],
+            warnings=c.warnings_json or [],
         )
 
-    excluded = [ExclusionReason(**e) for e in (rec.exclusions_json or [])]
     return RecommendationOut(
         recommendation_id=rec.recommendation_id,
         service_id=rec.service_id,
@@ -273,6 +253,6 @@ def get_recommendation_by_id(db: Session, recommendation_id: str) -> Recommendat
         eligible_count=rec.eligible_count,
         excluded_count=rec.excluded_count,
         weights=rec.weights_json,
-        candidates=candidate_outs,
+        candidates=[candidate_out(c) for c in candidates],
         excluded_units=excluded,
     )

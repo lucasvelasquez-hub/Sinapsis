@@ -1,16 +1,21 @@
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, CoreDomainError, ResourceNotFoundError
+from app.domain.enums import ServiceStatus
+from app.domain.temporal import utcnow
 from app.models.decision import DispatchDecision, Recommendation, RecommendationCandidate
 from app.models.raw import RawService, RawUnit
 from app.schemas.dispatch import DecisionCreate, DecisionOut
 from app.services.audit_service import record_audit_event
 from app.services.eligibility_service import evaluate_eligibility
 from app.services.simulation_service import mark_unit_assigned_in_simulation
+
+# Simulated occupation per dispatch (no historical duration model yet).
+SIMULATED_SERVICE_DURATION_MIN = 45.0
 
 
 def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOut:
@@ -29,7 +34,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
     if not payload.accepted and not payload.assigned_unit_id and not payload.rejection_reason:
         raise CoreDomainError("rejection_reason is required when rejecting all recommendations.")
 
-    if service.status != "PENDING":
+    if service.status != ServiceStatus.PENDING:
         raise ConflictError(
             f"Service '{service.service_id}' already has status {service.status}.",
             code="SERVICE_ALREADY_DECIDED",
@@ -42,7 +47,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
         else []
     )
 
-    now_utc = datetime.now(UTC).replace(tzinfo=None)
+    now_utc = utcnow()
     decision_id = str(uuid.uuid4())
 
     decision = DispatchDecision(
@@ -61,8 +66,8 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
 
     if payload.assigned_unit_id:
         service.assigned_unit_id = payload.assigned_unit_id
-        service.status = "DISPATCHED"
-        est_duration = 45.0
+        service.status = ServiceStatus.DISPATCHED
+        est_duration = SIMULATED_SERVICE_DURATION_MIN
         service.service_duration_min = est_duration
         service.completion_datetime = service.request_datetime + timedelta(minutes=est_duration)
         mark_unit_assigned_in_simulation(
@@ -73,7 +78,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             duration_min=est_duration,
         )
     else:
-        service.status = "REJECTED"
+        service.status = ServiceStatus.REJECTED
 
     record_audit_event(
         db,
@@ -92,18 +97,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
     db.commit()
     db.refresh(decision)
 
-    return DecisionOut(
-        decision_id=decision.decision_id,
-        service_id=decision.service_id,
-        recommendation_id=decision.recommendation_id,
-        recommended_unit_id=decision.recommended_unit_id,
-        assigned_unit_id=decision.assigned_unit_id,
-        recommendation_score=decision.recommendation_score,
-        accepted=decision.accepted,
-        rejection_reason=decision.rejection_reason,
-        eligibility_override=decision.eligibility_override,
-        decision_datetime=decision.decision_datetime,
-    )
+    return DecisionOut.model_validate(decision)
 
 
 def list_decisions(db: Session, limit: int = 50, offset: int = 0) -> list[DecisionOut]:
@@ -117,21 +111,7 @@ def list_decisions(db: Session, limit: int = 50, offset: int = 0) -> list[Decisi
         .scalars()
         .all()
     )
-    return [
-        DecisionOut(
-            decision_id=r.decision_id,
-            service_id=r.service_id,
-            recommendation_id=r.recommendation_id,
-            recommended_unit_id=r.recommended_unit_id,
-            assigned_unit_id=r.assigned_unit_id,
-            recommendation_score=r.recommendation_score,
-            accepted=r.accepted,
-            rejection_reason=r.rejection_reason,
-            eligibility_override=r.eligibility_override,
-            decision_datetime=r.decision_datetime,
-        )
-        for r in rows
-    ]
+    return [DecisionOut.model_validate(r) for r in rows]
 
 
 def _validated_recommendation_score(db: Session, payload: DecisionCreate) -> float | None:
