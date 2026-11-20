@@ -11,7 +11,6 @@ No temporal leakage: uses only features known at request_datetime.
 
 from __future__ import annotations
 
-import pickle
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
@@ -31,6 +30,7 @@ BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.core.database import SessionLocal, engine
+from app.ml.artifact import build_manifest, save_artifact
 from app.ml.baseline import ContextualStatisticalBaseline
 from app.ml.features import (
     CATEGORICAL_COLUMNS,
@@ -143,6 +143,8 @@ def train_and_evaluate() -> dict:
             best_val_mae = val_m["mae"]
             best_name = name
 
+    candidates_val = [(name, val_m) for name, val_m, _, _ in candidates]
+    candidates_test = [(name, test_m) for name, _, test_m, _ in candidates]
     now_utc = datetime.now(UTC).replace(tzinfo=None)
     with SessionLocal() as db:
         db.execute(delete(PredictionResult))
@@ -176,9 +178,16 @@ def train_and_evaluate() -> dict:
         else (lin_pipe if best_name == "linear_regression_ridge" else None),
         "feature_cols": feature_cols,
         "trained_at": now_utc.isoformat(),
+        "manifest": build_manifest(
+            trained_at=now_utc.isoformat(),
+            metrics={
+                "selected": best_name,
+                "validation": dict(candidates_val),
+                "test": dict(candidates_test),
+            },
+        ),
     }
-    with ARTIFACT_PATH.open("wb") as f:
-        pickle.dump(artifact, f)
+    save_artifact(ARTIFACT_PATH, artifact)
 
     summary = {
         "selected_model": best_name,

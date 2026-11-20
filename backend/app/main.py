@@ -5,6 +5,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.exceptions import register_exception_handlers
 from app.core.logging import configure_logging
+from app.services.prediction_service import _load_artifact
 
 
 def create_app() -> FastAPI:
@@ -24,6 +25,9 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+
+    # Fail fast on an incompatible model artifact instead of mispredicting later.
+    _load_artifact()
 
     register_exception_handlers(application)
     application.include_router(api_router)

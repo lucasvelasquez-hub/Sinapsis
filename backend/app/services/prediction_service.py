@@ -1,11 +1,11 @@
 """Node 4 — contextual expected response time (PREDICHO), never an individual GPS ETA."""
 
-import pickle
 from collections.abc import Sequence
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from app.ml.artifact import load_artifact
 from app.ml.baseline import ContextualStatisticalBaseline
 from app.ml.features import build_feature_frame
 from app.models.raw import RawService
@@ -25,10 +25,8 @@ Prediction = tuple[float, str]  # (minutes, estimation_type)
 
 @lru_cache(maxsize=1)
 def _load_artifact() -> dict[str, Any] | None:
-    if not ARTIFACT_PATH.exists():
-        return None
-    with ARTIFACT_PATH.open("rb") as f:
-        return pickle.load(f)
+    """Validated artifact, cached per process (restart or cache_clear() after retraining)."""
+    return load_artifact(ARTIFACT_PATH)
 
 
 def predict_expected_responses(
