@@ -31,3 +31,41 @@ def test_exclusion_reason_parses_legacy_json_without_codes() -> None:
     ex = ExclusionReason.model_validate(legacy)
 
     assert ex.reason_codes == [ExclusionCode.OUT_OF_SHIFT]
+
+
+def _service_of_type(db: Session, service_type: str) -> RawService:
+    return db.execute(
+        select(RawService).where(RawService.service_type == service_type).limit(1)
+    ).scalar_one()
+
+
+def test_ineligible_rule_excludes_with_incompatible_type(db: Session) -> None:
+    service = _service_of_type(db, "EVENTO_ESPECIAL")
+
+    evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
+
+    basicas = [ex for ex in evaluation.excluded_units if ex.unit_type == "BASICA"]
+    assert len(basicas) == 15
+    assert all(ExclusionCode.INCOMPATIBLE_TYPE in ex.reason_codes for ex in basicas)
+    assert not any(u.unit_type == "BASICA" for u in evaluation.eligible_units)
+
+
+def test_all_eligible_units_have_rank_one(db: Session) -> None:
+    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+
+    evaluation, ranks = evaluate_eligibility(db, service, service.request_datetime)
+
+    assert evaluation.eligible_units
+    assert set(ranks.values()) == {1}
+    assert set(ranks) == {u.unit_id for u in evaluation.eligible_units}
+
+
+def test_capacity_is_no_longer_an_exclusion(db: Session) -> None:
+    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+
+    evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
+
+    assert all(
+        ExclusionCode.INSUFFICIENT_CAPACITY not in ex.reason_codes
+        for ex in evaluation.excluded_units
+    )

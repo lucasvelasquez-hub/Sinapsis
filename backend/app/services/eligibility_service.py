@@ -2,6 +2,9 @@
 
 Hard constraints: no MCDM score can compensate them. Every excluded unit keeps its
 reasons (code + human-readable message).
+
+E: an eligible rule (service_type, unit_type) and an active unit. The dataset defines no
+minimum capacity and no preference between unit types: every eligible unit has rank 1.
 """
 
 from datetime import datetime
@@ -20,6 +23,7 @@ from app.services.simulation_service import (
 )
 
 NO_RULE_RANK = 99
+ELIGIBLE_RANK = 1  # el dataset no prioriza tipos de unidad: decide J
 
 
 def _exclusions(
@@ -37,13 +41,6 @@ def _exclusions(
             (
                 ExclusionCode.INCOMPATIBLE_TYPE,
                 f"Tipo {unit.unit_type} no compatible con {service_type}",
-            )
-        )
-    elif unit.capacity < rule.min_capacity:  # E
-        reasons.append(
-            (
-                ExclusionCode.INSUFFICIENT_CAPACITY,
-                f"Capacidad {unit.capacity} < requerida {rule.min_capacity}",
             )
         )
     if not shift_covers_hour(unit.shift, ref_dt.hour):  # S
@@ -78,7 +75,7 @@ def evaluate_eligibility(
         for r in db.execute(
             select(RawServiceRule).where(
                 RawServiceRule.service_type == service.service_type,
-                RawServiceRule.compatible.is_(True),
+                RawServiceRule.eligible.is_(True),
             )
         ).scalars()
     }
@@ -97,7 +94,6 @@ def evaluate_eligibility(
             excluded_units.append(
                 ExclusionReason(
                     unit_id=unit.unit_id,
-                    unit_code=unit.unit_code,
                     unit_type=unit.unit_type,
                     reason_codes=[code for code, _ in reasons],
                     reasons=[f"{code}: {msg}" for code, msg in reasons],
@@ -109,9 +105,8 @@ def evaluate_eligibility(
         eligible_units.append(
             UnitStatusOut(
                 unit_id=unit.unit_id,
-                unit_code=unit.unit_code,
                 unit_type=unit.unit_type,
-                base_zone_id=unit.base_zone_id,
+                base_id=unit.base_id,
                 shift=unit.shift,
                 capacity=unit.capacity,
                 active=unit.active,
@@ -122,7 +117,7 @@ def evaluate_eligibility(
                 workload_12h=w12,
             )
         )
-        compat_ranks[unit.unit_id] = rule.priority_rank if rule else NO_RULE_RANK
+        compat_ranks[unit.unit_id] = ELIGIBLE_RANK
 
     return (
         EligibilityEvaluation(

@@ -2,15 +2,19 @@
 
 from datetime import datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import delete, event
+from sqlalchemy import delete, event, func, select, text
 from sqlalchemy.orm import Session
 
 from app.models.core import ScoringConfig, SimulationSession
+from app.models.raw import RawService
 from app.services.scoring_service import get_scoring_config
 from app.services.simulation_service import (
     get_or_create_simulation_session,
     get_unit_busy_until,
+    get_units_busy_until,
+    historical_median_occupation_min,
     mark_unit_assigned_in_simulation,
 )
 
@@ -121,3 +125,58 @@ def test_mark_assignment_prunes_long_finished_assignments(db: Session) -> None:
     assignments = sim.active_assignments_json
     assert "U-OLD" not in assignments  # terminó >24 h antes del reloj
     assert [a["service_id"] for a in assignments["U-TEST"]] == ["S-1", "S-2"]
+
+
+def _ongoing_historical_service(db: Session) -> RawService:
+    return db.execute(
+        select(RawService)
+        .where(RawService.is_synthetic.is_(False))
+        .order_by(RawService.request_datetime.desc())
+        .limit(1)
+    ).scalar_one()
+
+
+def test_unit_with_ongoing_service_is_busy_until_closure(db: Session) -> None:
+    srv = _ongoing_historical_service(db)
+    ref = srv.assignment_datetime + timedelta(minutes=1)
+    busy = get_units_busy_until(
+        db, [srv.assigned_unit_id], ref, get_or_create_simulation_session(db)
+    )
+
+    assert busy[srv.assigned_unit_id] == srv.closure_datetime
+
+
+def test_unit_with_future_service_is_not_busy(db: Session) -> None:
+    srv = _ongoing_historical_service(db)
+    ref = srv.assignment_datetime - timedelta(seconds=1)
+    previous_close = db.execute(
+        select(func.max(RawService.closure_datetime)).where(
+            RawService.assigned_unit_id == srv.assigned_unit_id,
+            RawService.assignment_datetime < srv.assignment_datetime,
+        )
+    ).scalar_one()
+    assert previous_close is None or previous_close <= ref  # sin otro servicio en curso
+
+    busy = get_units_busy_until(
+        db, [srv.assigned_unit_id], ref, get_or_create_simulation_session(db)
+    )
+
+    assert busy[srv.assigned_unit_id] is None
+
+
+def test_simulated_occupation_uses_median_assignment_to_closure(db: Session) -> None:
+    expected = db.execute(
+        text(
+            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY "
+            "EXTRACT(EPOCH FROM (closure_datetime - assignment_datetime)) / 60.0) "
+            "FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA' AND NOT is_synthetic"
+        )
+    ).scalar_one()
+
+    assert historical_median_occupation_min(db, "EMERGENCIA_MEDICA") == pytest.approx(
+        float(expected)
+    )
+
+
+def test_simulated_occupation_falls_back_without_history(db: Session) -> None:
+    assert historical_median_occupation_min(db, "TIPO_INEXISTENTE") == 45.0

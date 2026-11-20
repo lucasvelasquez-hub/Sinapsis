@@ -61,22 +61,13 @@ def explain(
     service: RawService, unit: UnitStatusOut, compat_rank: int
 ) -> tuple[list[str], list[str]]:
     """Human-readable factors and warnings for one candidate."""
-    factors: list[str] = []
-    if unit.base_zone_id == service.zone_id:
-        factors.append(f"Base operativa en la misma zona ({unit.base_zone_id})")
-    if compat_rank == 1:
-        factors.append(f"Compatibilidad primaria (Rango {compat_rank}) para {service.service_type}")
-    else:
-        factors.append(f"Compatibilidad válida (Rango {compat_rank}) con {service.service_type}")
+    factors: list[str] = [f"Compatible con {service.service_type}"]
     if unit.workload_4h == 0:
         factors.append("Sin carga en las últimas 4 horas (tripulación descansada)")
     else:
         factors.append(f"Carga reciente moderada: {unit.workload_4h} servicios en 4h")
 
-    warnings = list(STANDARD_WARNINGS)
-    if unit.base_zone_id != service.zone_id:
-        warnings.append(f"Unidad asignada a base {unit.base_zone_id} (fuera de {service.zone_id}).")
-    return factors, warnings
+    return factors, list(STANDARD_WARNINGS)
 
 
 def score_candidates(
@@ -226,9 +217,8 @@ def _to_out(
         unit = units_by_id.get(c.unit_id)
         return RecommendationCandidateOut(
             unit_id=c.unit_id,
-            unit_code=unit.unit_code if unit else c.unit_id,
             unit_type=unit.unit_type if unit else "UNKNOWN",
-            base_zone_id=unit.base_zone_id if unit else "UNKNOWN",
+            base_id=unit.base_id if unit else "UNKNOWN",
             shift=unit.shift if unit else "UNKNOWN",
             rank=c.rank,
             score=c.score,

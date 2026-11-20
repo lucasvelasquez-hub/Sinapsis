@@ -71,9 +71,8 @@ class SimulateRequestCreate(BaseModel):
 
 class UnitStatusOut(BaseModel):
     unit_id: str
-    unit_code: str
     unit_type: str
-    base_zone_id: str
+    base_id: str
     shift: str
     capacity: int
     active: bool
@@ -86,7 +85,6 @@ class UnitStatusOut(BaseModel):
 
 class ExclusionReason(BaseModel):
     unit_id: str
-    unit_code: str
     unit_type: str
     reason_codes: list[ExclusionCode]
     reasons: list[str]  # "<CODE>: <mensaje legible>", alineado con reason_codes
@@ -110,9 +108,8 @@ class EligibilityEvaluation(BaseModel):
 
 class RecommendationCandidateOut(BaseModel):
     unit_id: str
-    unit_code: str
     unit_type: str
-    base_zone_id: str
+    base_id: str
     shift: str
     rank: int
     score: float

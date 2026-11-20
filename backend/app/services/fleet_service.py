@@ -28,9 +28,8 @@ def list_unit_statuses(db: Session) -> list[UnitStatusOut]:
         result.append(
             UnitStatusOut(
                 unit_id=u.unit_id,
-                unit_code=u.unit_code,
                 unit_type=u.unit_type,
-                base_zone_id=u.base_zone_id,
+                base_id=u.base_id,
                 shift=u.shift,
                 capacity=u.capacity,
                 active=u.active,

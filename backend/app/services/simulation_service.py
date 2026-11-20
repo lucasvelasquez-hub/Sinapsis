@@ -51,15 +51,16 @@ def get_units_busy_until(
     """busy_until per unit at ref_dt, or None when available.
 
     A simulated assignment (human decision) takes precedence; otherwise the historical
-    proxy: a service started at or before ref_dt that completes after it (no future data).
+    record: a service assigned at or before ref_dt and closed after it. A service assigned
+    later does not occupy the unit yet (no future data).
     """
     hist = dict(
         db.execute(
-            select(RawService.assigned_unit_id, func.max(RawService.completion_datetime))
+            select(RawService.assigned_unit_id, func.max(RawService.closure_datetime))
             .where(
                 RawService.assigned_unit_id.in_(unit_ids),
-                RawService.request_datetime <= ref_dt,
-                RawService.completion_datetime > ref_dt,
+                RawService.assignment_datetime <= ref_dt,
+                RawService.closure_datetime > ref_dt,
             )
             .group_by(RawService.assigned_unit_id)
         ).all()
@@ -89,17 +90,22 @@ def get_units_workload_windows(
     unit_ids: Collection[str],
     ref_dt: datetime,
 ) -> dict[str, WorkloadWindows]:
-    """Services per unit in the 4h/8h/12h windows strictly before ref_dt."""
+    """Services per unit in the 4h/8h/12h windows strictly before ref_dt.
+
+    Counted by assignment time; a dispatched synthetic request has no assignment_datetime
+    (the decision lives in decision.*), so it counts by request time.
+    """
     cutoff = ref_dt - timedelta(hours=max(WINDOW_HOURS))
+    assigned_at = func.coalesce(RawService.assignment_datetime, RawService.request_datetime)
     stamps: dict[str, list[datetime]] = defaultdict(list)
-    for unit_id, request_dt in db.execute(
-        select(RawService.assigned_unit_id, RawService.request_datetime).where(
+    for unit_id, assigned_dt in db.execute(
+        select(RawService.assigned_unit_id, assigned_at).where(
             RawService.assigned_unit_id.in_(unit_ids),
-            RawService.request_datetime >= cutoff,
-            RawService.request_datetime < ref_dt,
+            assigned_at >= cutoff,
+            assigned_at < ref_dt,
         )
     ):
-        stamps[unit_id].append(request_dt)
+        stamps[unit_id].append(assigned_dt)
     return {unit_id: window_counts(stamps.get(unit_id, []), ref_dt) for unit_id in unit_ids}
 
 
@@ -127,13 +133,16 @@ def _unit_assignment_windows(
     return windows
 
 
-def historical_median_duration_min(db: Session, service_type: str) -> float:
-    """Median observed service duration for the type (CALCULADO from OBSERVADO data)."""
+def historical_median_occupation_min(db: Session, service_type: str) -> float:
+    """Median occupation (assignment → closure) for the type: when the unit is free again.
+
+    CALCULADO from OBSERVADO data; FALLBACK_SERVICE_DURATION_MIN without history.
+    """
     median = db.execute(
-        select(func.percentile_cont(0.5).within_group(RawService.service_duration_min)).where(
+        select(func.percentile_cont(0.5).within_group(RawService.occupation_min)).where(
             RawService.service_type == service_type,
             RawService.is_synthetic.is_(False),
-            RawService.service_duration_min.is_not(None),
+            RawService.occupation_min.is_not(None),
         )
     ).scalar_one_or_none()
     return float(median) if median is not None else FALLBACK_SERVICE_DURATION_MIN
