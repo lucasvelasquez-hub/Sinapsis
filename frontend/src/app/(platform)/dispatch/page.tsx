@@ -72,7 +72,7 @@ export default function DispatchCenterPage() {
         <div>
           <h1 className="text-xl font-bold text-slate-50">Despacho</h1>
           <p className="text-sm text-slate-300">
-            CORE recomienda; la decisión y la firma son del despachador.
+            CORE recomienda; la decisión y la firma es del despachador.
           </p>
         </div>
         <div className="flex items-end gap-4">
