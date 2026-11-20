@@ -51,8 +51,15 @@ docker compose up -d
 
 # Reiniciar la DB local desde cero. BORRA decisiones y auditoría locales: la re-ingesta
 # sobre una DB con decisiones falla a propósito (las FK protegen la auditoría).
+# backend/.env apunta a Supabase: exportar la URL local para que alembic/ingesta NO toquen Supabase.
 docker compose down -v && docker compose up -d
-cd backend && uv run alembic upgrade head && uv run python ../scripts/ingest_and_prepare.py
+cd backend && export DATABASE_URL=postgresql+psycopg://core_user:core_password@localhost:5433/core_db \
+  DATABASE_URL_MIGRATIONS=postgresql+psycopg://core_user:core_password@localhost:5433/core_db
+uv run alembic upgrade head && uv run python ../scripts/ingest_and_prepare.py
+uv run python app/ml/train_models.py      # reentrenar si cambian datos o features (contra la DB local)
+
+# Validar el dataset de data/raw y regenerar docs/decisions/data_quality_report.md
+uv run python ../scripts/validate_dataset.py
 
 # Backend (desde backend/)
 uv sync
@@ -93,13 +100,17 @@ Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T +
 `components/` · `features/` · `stores/` (Zustand) · `lib/api.ts` (cliente HTTP, `NEXT_PUBLIC_API_BASE_URL`) ·
 `types/core.ts`.
 
-**Datos**: `data/raw/` es inmutable. Scripts en `scripts/` (generar, validar, ingerir dataset).
+**Datos**: `data/raw/` es inmutable: dataset sintético mínimo (servicios, unidades, reglas, objetivos;
+valores en español: `CRITICA`, `EMERGENCIA_MEDICA`, `COMUNA_05`, `TURNO_DIA`). Los CSV llevan BOM
+(`utf-8-sig`). Scripts en `scripts/`: `validate_dataset.py` (validación + informe de calidad) e
+`ingest_and_prepare.py` (aborta si el validador encuentra problemas). Los vocabularios los sirve
+`GET /api/v1/catalog`; el front no mantiene listas propias.
 
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
-- **Estado (2026-11-19): esquema aplicado en Supabase (revisión `31e853de3d90`), SIN datos** (no se ha
-  ingerido el dataset).
+- **Estado (2026-11-20): Supabase en la revisión `10020845ba5b` con el dataset mínimo ingerido**
+  (10.000 servicios, 30 unidades, 15 reglas, 4 objetivos). La app de desarrollo apunta a Supabase.
 - La app usa la DB de `DATABASE_URL` (`backend/.env`). Los tests NO: `tests/conftest.py` la fuerza a
   `TEST_DATABASE_URL` o al Docker local. Con `.env` apuntando a Supabase, `alembic` e
   `ingest_and_prepare.py` actúan sobre Supabase: ingerir allí es una escritura y requiere permiso explícito.
