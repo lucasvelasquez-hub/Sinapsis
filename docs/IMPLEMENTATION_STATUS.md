@@ -28,9 +28,34 @@
   - `decision_service.py` & `simulation_service.py`: Registro de decisiones humanas y actualización de disponibilidad simulada.
 - **API REST (`/api/v1/*`)**: `health`, `requests`, `requests/simulate`, `requests/{id}`, `recommendations/evaluate`, `recommendations/{id}`, `fleet/units`, `fleet/eligibility/{id}`, `analytics/overview`, `analytics/demand`, `decisions`, `config/scoring`.
 - **Frontend Next.js**: 5 pantallas operacionales (`/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`) con Apache ECharts, React Hook Form + Zod, Zustand, TanStack Query y badges de procedencia (`OBSERVADO`, `CALCULADO`, `PREDICHO`, `SIMULADO`).
-- **Tests**: Pytest (`45 passed`: flujo E2E, invariantes de decisión, simulación, dominio, restricciones DB, presupuesto de queries, artefacto ML; aislados en transacción) y Vitest (`1 passed`). CI en `.github/workflows/ci.yml`.
+- **Tests**: Pytest (`91 passed`: flujo E2E, invariantes de decisión, simulación, dominio, restricciones DB, esquema raw, validador del dataset, catálogo, presupuesto de queries, artefacto ML; aislados en transacción y siempre contra Docker local) y Vitest (`21 passed`). CI en `.github/workflows/ci.yml`.
 
 ## Decisiones Técnicas y Limitaciones
 - Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
 - El tiempo esperado es contextual histórico/ML, nunca ETA individual por GPS.
-- PostgreSQL corre localmente en Docker (`localhost:5433`), listo para apuntar a Supabase configurando `DATABASE_URL` en `backend/.env`.
+- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `10020845ba5b`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
+
+## Pendientes técnicos
+
+- **Recarga del dataset en Supabase bloqueada tras el primer uso.** `scripts/ingest_and_prepare.py` borra
+  `raw.services`/`raw.units` antes de cargar, y la migración `10020845ba5b` también vacía `raw`. En cuanto
+  existan recomendaciones o decisiones que los referencian (`decision.recommendations`,
+  `decision.dispatch_decisions`), las FK hacen fallar ese borrado y la carga aborta sin cambios. Es
+  intencional (la auditoría no se borra), pero deja el dataset de Supabase fijo. Si hay que cambiarlo:
+  ingesta incremental (insertar/actualizar sin borrar lo referenciado), un proyecto o branch de Supabase
+  aparte para pruebas, o una migración específica que conserve la auditoría.
+- **La re-ingesta no reinicia la sesión de simulación.** `core.simulation_sessions['default']` solo se crea
+  si falta: el reloj y `active_assignments_json` del dataset anterior se conservan. Reiniciarlos al
+  re-ingerir (reloj = última solicitud, asignaciones vacías).
+- **Ocupación simulada desde la solicitud.** `decision_service` marca la unidad ocupada desde
+  `request_datetime` durante la mediana asignación→cierre: la libera antes por el retraso típico de
+  despacho. Sumar la mediana de cola de despacho o documentarlo.
+- **Validación del modal contra el catálogo.** El Zod de `SimulateRequestModal` solo exige valores no
+  vacíos; la validación real la hace el backend (422). Construir el esquema desde el catálogo si se quiere
+  el error en el front.
+- **Fallback de predicción fijo.** `FALLBACK_BY_URGENCY` (8/15/30/60 min) está en código; añadir un test
+  que lo compare con `data/raw/response_targets.csv` o leerlo de la DB.
+- **Carga 4/8/12h sin índice.** El filtro por `coalesce(assignment_datetime, request_datetime)` recorre la
+  tabla; irrelevante con 10.000 servicios, revisar (índice de expresión) si `raw.services` crece mucho.
+- **Flujo evaluar/decidir no probado contra Supabase** (pooler 6543 con escrituras). Probado en local;
+  hacer una prueba manual cuando se autorice escribir en Supabase.
