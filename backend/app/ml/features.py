@@ -13,6 +13,7 @@ CATEGORICAL_COLUMNS = [
     "urgency_level",
     "service_type",
     "zone_id",
+    "relative_demand",
     "unit_type",
     "base_id",
     "shift",
@@ -23,22 +24,27 @@ NUMERIC_COLUMNS = [
     "is_weekend",
     "is_peak_hour",
     "capacity",
+    "distance_km",
+    "valley_time_min",
+    "traffic_factor",
 ]
 FEATURE_COLUMNS = CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
 
 
-def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
-    """Features known at request time for one (service, unit) pair.
+def _float_or(val: Any, default: float) -> float:
+    if val is None or pd.isna(val):
+        return default
+    return float(val)
 
-    `raw` needs: request_datetime, urgency_level, service_type, zone_id,
-    unit_type, base_id, shift, capacity. There is no base→zone mapping in the dataset,
-    so no "same zone" feature (no invented geography).
-    """
+
+def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
+    """Features known at request time for one (service, unit) pair (no temporal leakage)."""
     ctx = temporal_context(raw["request_datetime"])
     return {
         "urgency_level": raw["urgency_level"],
         "service_type": raw["service_type"],
         "zone_id": raw["zone_id"],
+        "relative_demand": raw.get("relative_demand") or "MEDIA",
         "unit_type": raw["unit_type"],
         "base_id": raw["base_id"],
         "shift": raw["shift"],
@@ -47,6 +53,9 @@ def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
         "is_weekend": int(ctx.is_weekend),
         "is_peak_hour": int(ctx.is_peak_hour),
         "capacity": int(raw["capacity"]),
+        "distance_km": _float_or(raw.get("distance_km"), 5.0),
+        "valley_time_min": _float_or(raw.get("valley_time_min"), 12.0),
+        "traffic_factor": _float_or(raw.get("traffic_factor"), 1.0),
     }
 
 

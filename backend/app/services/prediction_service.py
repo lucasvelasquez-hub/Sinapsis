@@ -18,7 +18,7 @@ ML_LABEL = "ML_CONTEXTUAL_PREDICTION"
 PREDICTION_BOUNDS_MIN = (2.0, 120.0)
 # Only used when no trained artifact exists (fresh checkout before train_models.py).
 # Values = the dataset response targets (raw.response_targets), the only reference available.
-FALLBACK_BY_URGENCY = {"CRITICA": 8.0, "ALTA": 15.0, "MEDIA": 30.0, "BAJA": 60.0}
+FALLBACK_BY_URGENCY = {"01": 15.0, "02": 20.0, "07": 45.0, "03": 90.0, "06": 180.0}
 FALLBACK_DEFAULT = 24.0
 
 Prediction = tuple[float, str]  # (minutes, estimation_type)
@@ -51,7 +51,9 @@ def model_evaluation() -> tuple[str, list[dict[str, Any]]] | None:
 
 
 def predict_expected_responses(
-    service: RawService, units: Sequence[UnitStatusOut]
+    service: RawService,
+    units: Sequence[UnitStatusOut],
+    context_by_unit: dict[str, dict[str, Any]] | None = None,
 ) -> list[Prediction]:
     """Predict for every (service, unit) pair in one model call."""
     if not units:
@@ -64,6 +66,7 @@ def predict_expected_responses(
     selected_name = artifact.get("selected_model_name", "statistical_baseline")
     ml_model = artifact.get("ml_model")
     if ml_model is not None and selected_name != "statistical_baseline":
+        ctx_map = context_by_unit or {}
         frame = build_feature_frame(
             {
                 "request_datetime": service.request_datetime,
@@ -74,6 +77,7 @@ def predict_expected_responses(
                 "base_id": u.base_id,
                 "shift": u.shift,
                 "capacity": u.capacity,
+                **ctx_map.get(u.unit_id, {}),
             }
             for u in units
         )

@@ -19,12 +19,12 @@ class ScoringConfig(Base):
     )
 
     config_id: Mapped[str] = mapped_column(String(32), primary_key=True)
-    weight_time: Mapped[float] = mapped_column(Float, default=0.80, nullable=False)
+    weight_time: Mapped[float] = mapped_column(Float, default=0.50, nullable=False)
     weight_workload: Mapped[float] = mapped_column(Float, default=0.20, nullable=False)
-    weight_cost: Mapped[float] = mapped_column(Float, default=0.00, nullable=False)
-    weight_coverage: Mapped[float] = mapped_column(Float, default=0.00, nullable=False)
-    cost_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
-    coverage_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    weight_cost: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
+    weight_coverage: Mapped[float] = mapped_column(Float, default=0.15, nullable=False)
+    cost_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    coverage_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 

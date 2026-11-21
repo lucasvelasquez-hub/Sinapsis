@@ -139,6 +139,8 @@ def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> Req
             request_datetime=req_dt,
             urgency_level=payload.urgency_level,
             service_type=payload.service_type,
+            discriminator=payload.discriminator,
+            channel=payload.channel,
             zone_id=payload.zone_id,
             status=ServiceStatus.PENDING,
             is_synthetic=True,

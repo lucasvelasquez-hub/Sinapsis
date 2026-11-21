@@ -3,17 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "next dev -p 3011",
     "build": "next build",
-    "start": "next start",
+    "start": "next start -p 3011",
     "lint": "eslint"
   },
   "dependencies": {
     "@hookform/resolvers": "^7.0.7",
     "@tanstack/react-query": "^5.108.1",
+    "@types/leaflet": "^1.9.22",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "echarts": "^6.1.0",
+    "leaflet": "^1.9.4",
     "lucide-react": "^1.76.0",
     "next": "16.4.6",
     "react": "19.3.0",

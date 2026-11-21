@@ -2,7 +2,7 @@
 
 from fastapi.testclient import TestClient
 
-VALID = {"urgency_level": "ALTA", "service_type": "EMERGENCIA_MEDICA", "zone_id": "COMUNA_01"}
+VALID = {"urgency_level": "02", "service_type": "Dolor torácico", "zone_id": "Z-MED-01-01"}
 
 
 def test_catalog_lists_dataset_values(client: TestClient) -> None:
@@ -10,13 +10,12 @@ def test_catalog_lists_dataset_values(client: TestClient) -> None:
 
     assert resp.status_code == 200
     body = resp.json()
-    assert [u["code"] for u in body["urgencies"]] == ["CRITICA", "ALTA", "MEDIA", "BAJA"]
-    assert body["urgencies"][0]["target_response_min"] == 8
-    assert len(body["zones"]) == 16
-    assert body["zones"][0] == "COMUNA_01"
-    assert "EVENTO_ESPECIAL" in body["service_types"]
-    assert body["unit_types"] == ["AVANZADA", "BASICA", "MEDICALIZADA"]
-    assert body["shifts"] == ["TURNO_24H", "TURNO_DIA", "TURNO_NOCHE"]
+    assert [u["code"] for u in body["urgencies"]] == ["01", "02", "07", "03", "06"]
+    assert body["urgencies"][0]["target_response_min"] == 15
+    assert len(body["zones"]) == 62
+    assert "Dolor torácico" in body["service_types"]
+    assert body["unit_types"] == ["TAB", "TAM", "VMD"]
+    assert body["shifts"] == ["TURNO_24H"]
 
 
 def test_simulate_rejects_unknown_zone(client: TestClient) -> None:
@@ -46,7 +45,7 @@ def test_simulated_request_detail_uses_new_fields(client: TestClient) -> None:
 
     assert resp.status_code == 201, resp.text
     body = resp.json()
-    assert body["context"]["target_response_min"] == 15
+    assert body["context"]["target_response_min"] == 20
     assert "sla_label" not in body["context"]
     assert body["arrival_datetime"] is None and body["closure_datetime"] is None
     assert "completion_datetime" not in body

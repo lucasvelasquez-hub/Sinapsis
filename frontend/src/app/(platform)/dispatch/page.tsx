@@ -1,24 +1,20 @@
 "use client";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
-import { useState } from "react";
 
 import { QueryErrorAlert } from "@/components/ErrorAlert";
+import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { DecisionHistory } from "@/features/dispatch/DecisionHistory";
 import { DecisionPanel } from "@/features/dispatch/DecisionPanel";
 import { EligibilityPanel } from "@/features/dispatch/EligibilityPanel";
 import { LastDecisionBanner } from "@/features/dispatch/LastDecisionBanner";
 import { RequestQueue } from "@/features/dispatch/RequestQueue";
 import { RequestSummaryCard } from "@/features/dispatch/RequestSummaryCard";
-import { DispatcherField } from "@/features/decisions/DispatcherField";
-import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import { coreApi } from "@/lib/api";
 import { useDispatchStore } from "@/stores/dispatchStore";
 
 export default function DispatchCenterPage() {
   const queryClient = useQueryClient();
-  const [modalOpen, setModalOpen] = useState(false);
   const { selectedServiceId, filters } = useDispatchStore();
 
   const requestsQuery = useQuery({
@@ -77,14 +73,6 @@ export default function DispatchCenterPage() {
         </div>
         <div className="flex items-end gap-4">
           <DispatcherField />
-          <button
-            type="button"
-            onClick={() => setModalOpen(true)}
-            className="inline-flex items-center gap-2 rounded-md bg-cyan-600 px-3.5 py-2 text-xs font-semibold text-white hover:bg-cyan-500"
-          >
-            <Plus className="h-4 w-4" />
-            Nueva solicitud sintética
-          </button>
         </div>
       </div>
 
@@ -96,7 +84,6 @@ export default function DispatchCenterPage() {
             requests={requestsQuery.data}
             isLoading={requestsQuery.isLoading}
             query={requestsQuery}
-            onCreate={() => setModalOpen(true)}
           />
         </div>
 
@@ -142,11 +129,6 @@ export default function DispatchCenterPage() {
           <DecisionHistory decisions={decisionsQuery.data} />
         </section>
       </div>
-
-      <SimulateRequestModal
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-      />
     </div>
   );
 }

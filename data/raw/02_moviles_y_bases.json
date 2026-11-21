@@ -1,0 +1,319 @@
+{
+  "_aviso": "DATOS FICTICIOS generados para uso académico (EstudIA). No corresponden a la operación real de Grupo EMI – Falck.",
+  "tipos_movil": [
+    {
+      "codigo": "TAM",
+      "descripcion": "Transporte Asistencial Medicalizado (ambulancia con médico)"
+    },
+    {
+      "codigo": "TAB",
+      "descripcion": "Transporte Asistencial Básico (ambulancia con paramédico)"
+    },
+    {
+      "codigo": "VMD",
+      "descripcion": "Vehículo Médico Domiciliario (automóvil con médico, sin camilla)"
+    }
+  ],
+  "bases": [
+    {
+      "id_base": "BAS-01",
+      "nombre_base": "Base Centro",
+      "municipio": "Medellín",
+      "id_zona": "Z-MED-10-02",
+      "lat": 6.257,
+      "lon": -75.573
+    },
+    {
+      "id_base": "BAS-02",
+      "nombre_base": "Base Poblado",
+      "municipio": "Medellín",
+      "id_zona": "Z-MED-14-01",
+      "lat": 6.205,
+      "lon": -75.567
+    },
+    {
+      "id_base": "BAS-03",
+      "nombre_base": "Base Laureles",
+      "municipio": "Medellín",
+      "id_zona": "Z-MED-11-02",
+      "lat": 6.255,
+      "lon": -75.596
+    },
+    {
+      "id_base": "BAS-04",
+      "nombre_base": "Base Norte",
+      "municipio": "Medellín",
+      "id_zona": "Z-MED-04-01",
+      "lat": 6.28,
+      "lon": -75.56
+    },
+    {
+      "id_base": "BAS-05",
+      "nombre_base": "Base Bello",
+      "municipio": "Bello",
+      "id_zona": "Z-BEL-01",
+      "lat": 6.337,
+      "lon": -75.558
+    },
+    {
+      "id_base": "BAS-06",
+      "nombre_base": "Base Envigado",
+      "municipio": "Envigado",
+      "id_zona": "Z-ENV-01",
+      "lat": 6.17,
+      "lon": -75.585
+    },
+    {
+      "id_base": "BAS-07",
+      "nombre_base": "Base Itagüí",
+      "municipio": "Itagüí",
+      "id_zona": "Z-ITA-01",
+      "lat": 6.172,
+      "lon": -75.611
+    },
+    {
+      "id_base": "BAS-08",
+      "nombre_base": "Base Robledo",
+      "municipio": "Medellín",
+      "id_zona": "Z-MED-07-01",
+      "lat": 6.275,
+      "lon": -75.595
+    }
+  ],
+  "moviles": [
+    {
+      "id_movil": "MOV-001",
+      "tipo_movil": "TAM",
+      "id_base": "BAS-01",
+      "costo_km": 3580,
+      "costo_hora": 194000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-002",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-01",
+      "costo_km": 3300,
+      "costo_hora": 118000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-003",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-01",
+      "costo_km": 1300,
+      "costo_hora": 81000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-004",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-01",
+      "costo_km": 1220,
+      "costo_hora": 75000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-005",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-01",
+      "costo_km": 1310,
+      "costo_hora": 78000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-006",
+      "tipo_movil": "TAM",
+      "id_base": "BAS-02",
+      "costo_km": 3430,
+      "costo_hora": 180000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-007",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-02",
+      "costo_km": 2860,
+      "costo_hora": 120000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-008",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-02",
+      "costo_km": 1340,
+      "costo_hora": 81000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-009",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-02",
+      "costo_km": 1400,
+      "costo_hora": 78000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-010",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-03",
+      "costo_km": 3220,
+      "costo_hora": 114000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-011",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-03",
+      "costo_km": 1360,
+      "costo_hora": 81000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-012",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-03",
+      "costo_km": 1220,
+      "costo_hora": 74000,
+      "activo": false,
+      "observacion": "En mantenimiento durante todo el periodo"
+    },
+    {
+      "id_movil": "MOV-013",
+      "tipo_movil": "TAM",
+      "id_base": "BAS-04",
+      "costo_km": 3440,
+      "costo_hora": 187000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-014",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-04",
+      "costo_km": 3040,
+      "costo_hora": 109000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-015",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-04",
+      "costo_km": 1370,
+      "costo_hora": 80000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-016",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-04",
+      "costo_km": 1290,
+      "costo_hora": 74000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-017",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-05",
+      "costo_km": 3290,
+      "costo_hora": 115000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-018",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-05",
+      "costo_km": 1210,
+      "costo_hora": 77000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-019",
+      "tipo_movil": "TAM",
+      "id_base": "BAS-06",
+      "costo_km": 3670,
+      "costo_hora": 192000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-020",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-06",
+      "costo_km": 3090,
+      "costo_hora": 117000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-021",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-06",
+      "costo_km": 1240,
+      "costo_hora": 76000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-022",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-06",
+      "costo_km": 1380,
+      "costo_hora": 77000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-023",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-07",
+      "costo_km": 2900,
+      "costo_hora": 116000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-024",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-07",
+      "costo_km": 1220,
+      "costo_hora": 76000,
+      "activo": false,
+      "observacion": "En mantenimiento durante todo el periodo"
+    },
+    {
+      "id_movil": "MOV-025",
+      "tipo_movil": "TAB",
+      "id_base": "BAS-08",
+      "costo_km": 3080,
+      "costo_hora": 116000,
+      "activo": true,
+      "observacion": ""
+    },
+    {
+      "id_movil": "MOV-026",
+      "tipo_movil": "VMD",
+      "id_base": "BAS-08",
+      "costo_km": 1330,
+      "costo_hora": 80000,
+      "activo": true,
+      "observacion": ""
+    }
+  ]
+}

@@ -8,7 +8,9 @@ import {
   BarChart3,
   BrainCircuit,
   LayoutDashboard,
+  Navigation,
   Radio,
+  Target,
   Truck,
 } from "lucide-react";
 
@@ -17,10 +19,12 @@ import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
   { href: "/dispatch", label: "Dispatch Center", icon: Radio },
+  { href: "/simulation", label: "Simulation", icon: Navigation },
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/intelligence", label: "Intelligence", icon: BrainCircuit },
   { href: "/fleet", label: "Fleet", icon: Truck },
   { href: "/analytics", label: "Analytics", icon: BarChart3 },
+  { href: "/benchmarks", label: "Escenarios y KPIs", icon: Target },
 ];
 
 export function PlatformShell({ children }: { children: React.ReactNode }) {

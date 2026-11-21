@@ -1,0 +1,66 @@
+from typing import Annotated
+
+from fastapi import APIRouter, Body, Depends
+from sqlalchemy.orm import Session
+
+from app.core.database import get_db
+from app.schemas.simulation import (
+    AdvanceClockIn,
+    AdvanceClockOut,
+    ArriveServiceOut,
+    CompleteServiceIn,
+    CompleteServiceOut,
+    GenerateRequestsIn,
+    GenerateRequestsOut,
+    PositionsBatchIn,
+    PositionsBatchOut,
+    SimulationStateOut,
+)
+from app.services.simulation_control_service import (
+    advance_simulation_clock,
+    arrive_service_in_simulation,
+    complete_service_in_simulation,
+    generate_random_requests,
+    get_simulation_state,
+    ingest_live_positions,
+)
+
+router = APIRouter(prefix="/simulation", tags=["simulation"])
+DbDep = Annotated[Session, Depends(get_db)]
+
+
+@router.get("/state", response_model=SimulationStateOut)
+def simulation_state(db: DbDep) -> SimulationStateOut:
+    return get_simulation_state(db)
+
+
+@router.post("/positions", response_model=PositionsBatchOut)
+def simulation_positions(payload: PositionsBatchIn, db: DbDep) -> PositionsBatchOut:
+    return ingest_live_positions(db, payload)
+
+
+@router.post("/arrive/{service_id}", response_model=ArriveServiceOut)
+def simulation_arrive_service(service_id: str, db: DbDep) -> ArriveServiceOut:
+    return arrive_service_in_simulation(db, service_id)
+
+
+@router.post("/complete/{service_id}", response_model=CompleteServiceOut)
+def simulation_complete_service(
+    service_id: str,
+    db: DbDep,
+    payload: Annotated[CompleteServiceIn | None, Body()] = None,
+) -> CompleteServiceOut:
+    return complete_service_in_simulation(db, service_id, payload)
+
+
+@router.post("/advance-clock", response_model=AdvanceClockOut)
+def simulation_advance_clock(payload: AdvanceClockIn, db: DbDep) -> AdvanceClockOut:
+    return advance_simulation_clock(db, payload.minutes)
+
+
+@router.post("/generate", response_model=GenerateRequestsOut)
+def simulation_generate_requests(
+    db: DbDep,
+    payload: Annotated[GenerateRequestsIn | None, Body()] = None,
+) -> GenerateRequestsOut:
+    return generate_random_requests(db, (payload.count if payload else 4))

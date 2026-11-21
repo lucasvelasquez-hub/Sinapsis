@@ -50,23 +50,23 @@ def get_or_create_simulation_session(db: Session, for_update: bool = False) -> S
     return session
 
 
-def resync_simulation_session(db: Session, unit_ids: Collection[str]) -> SimulationSession:
-    """Align the simulation with a (re)loaded dataset.
+POSITIONS_KEY = "_positions"
 
-    Clock at the latest request (synthetic ones included, so it never goes back before a
-    simulated request). Occupations of units that no longer exist are dropped; those of
-    current units (live simulated decisions) are kept.
-    """
+
+def resync_simulation_session(db: Session, unit_ids: Collection[str]) -> SimulationSession:
+    """Align the simulation with a (re)loaded dataset."""
     sim = get_or_create_simulation_session(db)
     latest = db.execute(select(func.max(RawService.request_datetime))).scalar_one_or_none()
     if latest is not None:
         sim.current_sim_datetime = latest
     known = set(unit_ids)
-    sim.active_assignments_json = {
-        unit_id: entries
-        for unit_id, entries in (sim.active_assignments_json or {}).items()
-        if unit_id in known
-    }
+    raw = sim.active_assignments_json or {}
+    synced = {unit_id: entries for unit_id, entries in raw.items() if unit_id in known}
+    if isinstance(raw.get(POSITIONS_KEY), dict):
+        synced[POSITIONS_KEY] = {
+            uid: pos for uid, pos in raw[POSITIONS_KEY].items() if uid in known
+        }
+    sim.active_assignments_json = synced
     sim.updated_at = utcnow()
     db.flush()
     return sim
@@ -199,13 +199,50 @@ def advance_sim_clock(db: Session, to_dt: datetime) -> SimulationSession:
 
 def _prune_finished(assignments: dict, clock: datetime) -> dict:
     cutoff = (clock - ASSIGNMENT_RETENTION).isoformat()
-    pruned: dict[str, list[dict]] = {}
+    pruned: dict = {}
     for unit_id, entries in assignments.items():
+        if unit_id == POSITIONS_KEY and isinstance(entries, dict):
+            pruned[POSITIONS_KEY] = entries
+            continue
         unit_entries = [entries] if isinstance(entries, dict) else entries
         kept = [e for e in unit_entries if e.get("busy_until", "") >= cutoff]
         if kept:
             pruned[unit_id] = kept
     return pruned
+
+
+def get_live_positions(sim_session: SimulationSession) -> dict[str, dict]:
+    raw = (sim_session.active_assignments_json or {}).get(POSITIONS_KEY)
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+def update_live_positions(db: Session, updates: dict[str, dict]) -> SimulationSession:
+    sim = get_or_create_simulation_session(db, for_update=True)
+    assignments = dict(sim.active_assignments_json or {})
+    positions = dict(assignments.get(POSITIONS_KEY) or {})
+    positions.update(updates)
+    assignments[POSITIONS_KEY] = positions
+    sim.active_assignments_json = assignments
+    sim.updated_at = utcnow()
+    db.add(sim)
+    return sim
+
+
+def release_service_in_simulation(db: Session, unit_id: str, service_id: str) -> SimulationSession:
+    sim = get_or_create_simulation_session(db, for_update=True)
+    assignments = dict(sim.active_assignments_json or {})
+    entries = assignments.get(unit_id) or []
+    if isinstance(entries, dict):
+        entries = [entries]
+    kept = [e for e in entries if e.get("service_id") != service_id]
+    if kept:
+        assignments[unit_id] = kept
+    else:
+        assignments.pop(unit_id, None)
+    sim.active_assignments_json = assignments
+    sim.updated_at = utcnow()
+    db.add(sim)
+    return sim
 
 
 def mark_unit_assigned_in_simulation(

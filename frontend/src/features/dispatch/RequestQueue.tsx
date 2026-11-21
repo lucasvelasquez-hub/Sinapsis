@@ -32,7 +32,7 @@ export function RequestQueue({
   requests: RequestSummary[] | undefined;
   isLoading: boolean;
   query: RetryableQuery;
-  onCreate: () => void;
+  onCreate?: () => void;
 }) {
   const catalogQuery = useCatalog();
   const catalog = catalogQuery.data;
@@ -151,13 +151,15 @@ export function RequestQueue({
         {requests?.length === 0 && (
           <div className="space-y-2 p-4 text-sm text-slate-300">
             <p>{emptyLabel}</p>
-            <button
-              type="button"
-              onClick={onCreate}
-              className="rounded-md border border-cyan-600 px-2.5 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
-            >
-              Nueva solicitud sintética
-            </button>
+            {onCreate && (
+              <button
+                type="button"
+                onClick={onCreate}
+                className="rounded-md border border-cyan-600 px-2.5 py-1 text-xs text-cyan-200 hover:bg-cyan-500/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/50"
+              >
+                Nueva solicitud sintética
+              </button>
+            )}
           </div>
         )}
         {requests?.map((req) => {

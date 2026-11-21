@@ -61,13 +61,31 @@ def train_and_evaluate() -> dict:
             s.urgency_level,
             s.service_type,
             s.zone_id,
+            COALESCE(z.relative_demand, 'MEDIA') AS relative_demand,
             s.response_time_min,
             u.unit_type,
             u.base_id,
             u.shift,
-            u.capacity
+            u.capacity,
+            COALESCE(s.distance_km, tt.distance_km, 5.0) AS distance_km,
+            COALESCE(tt.valley_time_min, 12.0) AS valley_time_min,
+            COALESCE(tf.factor, 1.0) AS traffic_factor
         FROM raw.services s
         JOIN raw.units u ON s.assigned_unit_id = u.unit_id
+        LEFT JOIN raw.zones z ON s.zone_id = z.zone_id
+        LEFT JOIN raw.bases b ON u.base_id = b.base_id
+        LEFT JOIN raw.zone_travel_times tt
+            ON COALESCE(s.origin_zone_id, b.zone_id) = tt.origin_zone_id
+            AND s.zone_id = tt.destination_zone_id
+        LEFT JOIN raw.traffic_factors tf
+            ON tf.day_type = (
+                CASE
+                    WHEN EXTRACT(ISODOW FROM s.request_datetime) <= 5 THEN 'LUNES_A_VIERNES'
+                    WHEN EXTRACT(ISODOW FROM s.request_datetime) = 6 THEN 'SABADO'
+                    ELSE 'DOMINGO_FESTIVO'
+                END
+            )
+            AND EXTRACT(HOUR FROM s.request_datetime)::int BETWEEN tf.hour_start AND tf.hour_end
         WHERE s.response_time_min IS NOT NULL
         ORDER BY s.request_datetime ASC, s.service_id ASC
     """

@@ -12,10 +12,20 @@ def test_normalize_min_max_0_100() -> None:
 
 
 def test_compute_mcdm_score_default_weights() -> None:
-    # J(j) = 0.8 * T(j) + 0.2 * L(j)
-    assert compute_mcdm_score(0.0, 0.0) == 0.0
-    assert compute_mcdm_score(100.0, 100.0) == 100.0
-    assert compute_mcdm_score(50.0, 25.0, 0.80, 0.20) == 45.0
+    # J(j) = 0.50·T + 0.20·L + 0.15·C + 0.15·K
+    assert compute_mcdm_score(0.0, 0.0, 0.0, 0.0) == 0.0
+    assert compute_mcdm_score(100.0, 100.0, 100.0, 100.0) == 100.0
+    assert (
+        compute_mcdm_score(
+            50.0,
+            25.0,
+            weight_time=0.80,
+            weight_workload=0.20,
+            weight_cost=0.0,
+            weight_coverage=0.0,
+        )
+        == 45.0
+    )
 
 
 def test_compute_raw_workload_index() -> None:

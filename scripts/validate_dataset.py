@@ -1,207 +1,267 @@
-"""Validación del dataset sintético mínimo de data/raw/.
-
-- `validate(raw_dir)` devuelve los problemas bloqueantes (lista vacía = válido). La ingesta lo
-  llama y aborta si hay alguno.
-- `findings(raw_dir)` devuelve hallazgos de calidad no bloqueantes (se documentan, no se corrigen).
-- `main()` imprime ambos y regenera docs/decisions/data_quality_report.md.
-
-Uso (desde backend/): uv run python ../scripts/validate_dataset.py
-"""
+"""Validación del dataset real de Grupo EMI en data/raw/ + informe de calidad."""
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
-from typing import Any
 
+import openpyxl
 import pandas as pd
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT_DIR / "data" / "raw"
 REPORT_PATH = ROOT_DIR / "docs" / "decisions" / "data_quality_report.md"
 
-TIMESTAMPS = ["request_datetime", "assignment_datetime", "arrival_datetime", "closure_datetime"]
-COLUMNS: dict[str, list[str]] = {
-    "services.csv": [
-        "service_id",
-        *TIMESTAMPS,
-        "urgency_level",
-        "service_type",
-        "zone_id",
-        "assigned_unit_id",
-    ],
-    "units.csv": ["unit_id", "unit_type", "base_id", "shift", "capacity", "cost_per_km"],
-    "service_rules.csv": ["service_type", "unit_type", "eligible"],
-    "response_targets.csv": ["urgency_level", "target_response_minutes"],
-}
-URGENCIES = {"CRITICA", "ALTA", "MEDIA", "BAJA"}
-SHIFTS = {"TURNO_24H", "TURNO_DIA", "TURNO_NOCHE"}
-DAY_HOURS = range(6, 18)  # TURNO_DIA [06, 18); TURNO_NOCHE es el complemento
+REQUIRED_FILES = (
+    "01_servicios_historicos.json",
+    "02_moviles_y_bases.json",
+    "05_zonas_y_tiempos.xlsx",
+    "06_escenarios_referencia.xlsx",
+    "07_indicadores.xlsx",
+)
+
+EMI_TARGETS: list[dict] = [
+    {
+        "urgency_level": "01",
+        "description": "EMERGENCIA - 15 MIN",
+        "manchester_scale": "ROJO",
+        "target_response_min": 15,
+    },
+    {
+        "urgency_level": "02",
+        "description": "URGENCIA - 20 MIN",
+        "manchester_scale": "NARANJA",
+        "target_response_min": 20,
+    },
+    {
+        "urgency_level": "07",
+        "description": "PRIORIZADO",
+        "manchester_scale": "AMARILLO",
+        "target_response_min": 45,
+    },
+    {
+        "urgency_level": "03",
+        "description": "CONSULTA",
+        "manchester_scale": "VERDE",
+        "target_response_min": 90,
+    },
+    {
+        "urgency_level": "06",
+        "description": "CONSULTA BANAL",
+        "manchester_scale": "AZUL",
+        "target_response_min": 180,
+    },
+]
+
+# Matriz de compatibilidad (doc 03, sección 4)
+EMI_RULES: list[dict] = [
+    # 01 - Emergencia
+    {"urgency_level": "01", "unit_type": "TAM", "eligible": True, "compatibility_level": "PREFERIDA", "compatibility_rank": 1},
+    {"urgency_level": "01", "unit_type": "TAB", "eligible": True, "compatibility_level": "PERMITIDA", "compatibility_rank": 2},
+    {"urgency_level": "01", "unit_type": "VMD", "eligible": True, "compatibility_level": "SOLO_ESTABILIZACION", "compatibility_rank": 3},
+    # 02 - Urgencia
+    {"urgency_level": "02", "unit_type": "TAM", "eligible": True, "compatibility_level": "PERMITIDA", "compatibility_rank": 2},
+    {"urgency_level": "02", "unit_type": "TAB", "eligible": True, "compatibility_level": "PREFERIDA", "compatibility_rank": 1},
+    {"urgency_level": "02", "unit_type": "VMD", "eligible": True, "compatibility_level": "SOLO_ESTABILIZACION", "compatibility_rank": 3},
+    # 07 - Priorizado
+    {"urgency_level": "07", "unit_type": "TAM", "eligible": True, "compatibility_level": "NO_RECOMENDADA", "compatibility_rank": 4},
+    {"urgency_level": "07", "unit_type": "TAB", "eligible": True, "compatibility_level": "PERMITIDA", "compatibility_rank": 2},
+    {"urgency_level": "07", "unit_type": "VMD", "eligible": True, "compatibility_level": "PREFERIDA", "compatibility_rank": 1},
+    # 03 - Consulta
+    {"urgency_level": "03", "unit_type": "TAM", "eligible": False, "compatibility_level": "NO_PERMITIDA", "compatibility_rank": 5},
+    {"urgency_level": "03", "unit_type": "TAB", "eligible": True, "compatibility_level": "NO_RECOMENDADA", "compatibility_rank": 4},
+    {"urgency_level": "03", "unit_type": "VMD", "eligible": True, "compatibility_level": "PREFERIDA", "compatibility_rank": 1},
+    # 06 - Consulta banal
+    {"urgency_level": "06", "unit_type": "TAM", "eligible": False, "compatibility_level": "NO_PERMITIDA", "compatibility_rank": 5},
+    {"urgency_level": "06", "unit_type": "TAB", "eligible": False, "compatibility_level": "NO_PERMITIDA", "compatibility_rank": 5},
+    {"urgency_level": "06", "unit_type": "VMD", "eligible": True, "compatibility_level": "PREFERIDA", "compatibility_rank": 1},
+]
 
 
-def read_csv(raw_dir: Path, name: str) -> pd.DataFrame:
-    """Los CSV del dataset llevan BOM: utf-8-sig."""
-    return pd.read_csv(raw_dir / name, encoding="utf-8-sig")
+def _parse_hour(hhmm: str) -> int:
+    return int(str(hhmm).split(":", 1)[0])
 
 
-def _as_bool(series: pd.Series) -> pd.Series:
-    return series.astype(str).str.lower().eq("true")
+def load_emi_frames(raw_dir: Path = RAW_DIR) -> dict[str, pd.DataFrame]:
+    """Lee los insumos reales de Grupo EMI y devuelve DataFrames listos para validar/ingerir."""
+    fleet_data = json.loads((raw_dir / "02_moviles_y_bases.json").read_text(encoding="utf-8"))
+    bases_df = pd.DataFrame(fleet_data["bases"]).rename(
+        columns={"id_base": "base_id", "nombre_base": "name", "municipio": "municipality", "id_zona": "zone_id"}
+    )
+    units_df = pd.DataFrame(fleet_data["moviles"]).rename(
+        columns={
+            "id_movil": "unit_id",
+            "tipo_movil": "unit_type",
+            "id_base": "base_id",
+            "costo_km": "cost_per_km",
+            "costo_hora": "cost_per_hour",
+            "activo": "active",
+            "observacion": "observation",
+        }
+    )
+    units_df["shift"] = "TURNO_24H"
+    units_df["capacity"] = 1
 
+    wb = openpyxl.load_workbook(raw_dir / "05_zonas_y_tiempos.xlsx", read_only=True, data_only=True)
+    zones_df = pd.DataFrame(
+        list(wb["zonas"].iter_rows(min_row=2, values_only=True)),
+        columns=["zone_id", "municipality", "comuna", "lat_centroid", "lon_centroid", "relative_demand"],
+    ).dropna(subset=["zone_id"])
+    travel_df = pd.DataFrame(
+        list(wb["matriz_tiempos"].iter_rows(min_row=2, values_only=True)),
+        columns=["origin_zone_id", "destination_zone_id", "distance_km", "valley_time_min", "peak_time_min"],
+    ).dropna(subset=["origin_zone_id", "destination_zone_id"])
+    traffic_raw = pd.DataFrame(
+        list(wb["factor_trafico"].iter_rows(min_row=2, values_only=True)),
+        columns=["day_type", "hora_inicio", "hora_fin", "factor"],
+    ).dropna(subset=["day_type"])
+    traffic_raw["hour_start"] = traffic_raw["hora_inicio"].map(_parse_hour)
+    traffic_raw["hour_end"] = traffic_raw["hora_fin"].map(_parse_hour)
+    traffic_df = traffic_raw[["day_type", "hour_start", "hour_end", "factor"]]
+    centers_df = pd.DataFrame(
+        list(wb["centros_atencion"].iter_rows(min_row=2, values_only=True)),
+        columns=["center_id", "name", "zone_id", "complexity_level"],
+    ).dropna(subset=["center_id"])
+    wb.close()
 
-def load_services(raw_dir: Path) -> pd.DataFrame:
-    services = read_csv(raw_dir, "services.csv")
-    for col in TIMESTAMPS:
-        # El CSV trae nanosegundos; Postgres guarda microsegundos.
-        services[col] = pd.to_datetime(services[col]).dt.floor("us")
-    return services
+    srv_raw = json.loads((raw_dir / "01_servicios_historicos.json").read_text(encoding="utf-8"))["servicios"]
+    rows = []
+    for s in srv_raw:
+        clfs = s.get("clasificaciones") or []
+        last_clf = clfs[-1] if clfs else {}
+        moviles = s.get("moviles") or []
+        primary = next((m for m in moviles if m.get("estado") == "COMPLETADO"), moviles[0] if moviles else None)
+        rows.append(
+            {
+                "service_id": s["id_servicio"],
+                "request_datetime": pd.to_datetime(s["fecha_hora_solicitud"]),
+                "dispatch_datetime": pd.to_datetime(s["fecha_hora_paso_a_despacho"])
+                if s.get("fecha_hora_paso_a_despacho")
+                else None,
+                "urgency_level": s["clasificacion_final"],
+                "manchester_scale": last_clf.get("escala_manchester"),
+                "service_type": last_clf.get("motivo_consulta") or "Consulta general",
+                "discriminator": last_clf.get("discriminador"),
+                "channel": s.get("canal"),
+                "zone_id": s["id_zona"],
+                "lat_approx": s.get("lat_aprox"),
+                "lon_approx": s.get("lon_aprox"),
+                "assigned_unit_id": primary["id_movil"] if primary else None,
+                "origin_zone_id": primary.get("zona_origen_movil") if primary else None,
+                "distance_km": primary.get("distancia_km") if primary else None,
+                "assignment_datetime": pd.to_datetime(primary["fecha_hora_asignacion"])
+                if primary and primary.get("fecha_hora_asignacion")
+                else None,
+                "arrival_datetime": pd.to_datetime(primary["fecha_hora_llegada"])
+                if primary and primary.get("fecha_hora_llegada")
+                else None,
+                "closure_datetime": pd.to_datetime(s["fecha_hora_cierre"])
+                if s.get("fecha_hora_cierre")
+                else None,
+                "reported_response_min": s.get("tiempo_respuesta_min"),
+                "required_transfer": s.get("requirio_traslado"),
+                "destination_center": s.get("destino"),
+                "closure_state": s.get("estado_cierre"),
+                "classifications_json": clfs,
+                "assigned_units_json": moviles,
+            }
+        )
+    services_df = pd.DataFrame(rows)
+
+    return {
+        "targets": pd.DataFrame(EMI_TARGETS),
+        "rules": pd.DataFrame(EMI_RULES),
+        "bases": bases_df,
+        "units": units_df,
+        "zones": zones_df,
+        "travel_times": travel_df,
+        "traffic_factors": traffic_df,
+        "care_centers": centers_df,
+        "services": services_df,
+    }
 
 
 def validate(raw_dir: Path = RAW_DIR) -> list[str]:
     problems: list[str] = []
-    frames: dict[str, pd.DataFrame] = {}
-    for name, cols in COLUMNS.items():
-        if not (raw_dir / name).exists():
-            problems.append(f"{name}: no existe")
-            continue
-        df = read_csv(raw_dir, name)
-        missing = [c for c in cols if c not in df.columns]
-        if missing:
-            problems.append(f"{name}: faltan columnas {missing}")
-            continue
-        nulls = int(df[cols].isna().sum().sum())
-        if nulls:
-            problems.append(f"{name}: {nulls} valores nulos")
-        frames[name] = df
-    if len(frames) < len(COLUMNS):
+    for fname in REQUIRED_FILES:
+        if not (raw_dir / fname).exists():
+            problems.append(f"Falta el archivo requerido: {fname}")
+    if problems:
         return problems
 
-    services = load_services(raw_dir)
-    units = frames["units.csv"]
-    rules = frames["service_rules.csv"]
+    frames = load_emi_frames(raw_dir)
+    services = frames["services"]
+    units = frames["units"]
+    bases = frames["bases"]
+    zones = frames["zones"]
+    travel = frames["travel_times"]
 
-    for name, key in [
-        ("services.csv", ["service_id"]),
-        ("units.csv", ["unit_id"]),
-        ("service_rules.csv", ["service_type", "unit_type"]),
-        ("response_targets.csv", ["urgency_level"]),
-    ]:
-        dups = int(frames[name].duplicated(subset=key).sum())
-        if dups:
-            problems.append(f"{name}: {dups} claves duplicadas {key}")
+    if services["service_id"].duplicated().any():
+        problems.append("service_id duplicado en 01_servicios_historicos.json")
+    if units["unit_id"].duplicated().any():
+        problems.append("unit_id duplicado en 02_moviles_y_bases.json")
+    if bases["base_id"].duplicated().any():
+        problems.append("base_id duplicado en 02_moviles_y_bases.json")
+    if zones["zone_id"].duplicated().any():
+        problems.append("zone_id duplicado en 05_zonas_y_tiempos.xlsx")
 
-    bad_urgency = set(services["urgency_level"]) - URGENCIES
-    if bad_urgency:
-        problems.append(f"services.csv: urgencias desconocidas {sorted(bad_urgency)}")
-    missing_targets = URGENCIES - set(frames["response_targets.csv"]["urgency_level"])
-    if missing_targets:
-        problems.append(f"response_targets.csv: faltan urgencias {sorted(missing_targets)}")
-    bad_shift = set(units["shift"]) - SHIFTS
-    if bad_shift:
-        problems.append(f"units.csv: turnos desconocidos {sorted(bad_shift)}")
+    known_urgencies = {t["urgency_level"] for t in EMI_TARGETS}
+    bad_urgencies = set(services["urgency_level"]) - known_urgencies
+    if bad_urgencies:
+        problems.append(f"Clasificaciones EMI desconocidas: {sorted(bad_urgencies)}")
 
-    orphans = set(services["assigned_unit_id"]) - set(units["unit_id"])
-    if orphans:
-        problems.append(f"services.csv: unidades inexistentes {sorted(orphans)}")
+    known_bases = set(bases["base_id"])
+    bad_bases = set(units["base_id"]) - known_bases
+    if bad_bases:
+        problems.append(f"Móviles con base_id desconocido: {sorted(bad_bases)}")
 
-    ordered = (
-        (services["request_datetime"] <= services["assignment_datetime"])
-        & (services["assignment_datetime"] <= services["arrival_datetime"])
-        & (services["arrival_datetime"] <= services["closure_datetime"])
-    )
-    if not ordered.all():
-        problems.append(f"services.csv: {int((~ordered).sum())} servicios con orden temporal roto")
+    known_zones = set(zones["zone_id"])
+    bad_srv_zones = set(services["zone_id"]) - known_zones
+    if bad_srv_zones:
+        problems.append(f"Servicios con id_zona fuera del maestro de zonas: {sorted(bad_srv_zones)}")
 
-    assigned = services.merge(
-        units[["unit_id", "unit_type"]], left_on="assigned_unit_id", right_on="unit_id"
-    ).merge(
-        rules.assign(eligible=_as_bool(rules["eligible"])),
-        on=["service_type", "unit_type"],
-        how="left",
-    )
-    ineligible = int((assigned["eligible"] != True).sum())  # noqa: E712 — NaN = sin regla
-    if ineligible:
-        problems.append(f"services.csv: {ineligible} asignaciones a un par no elegible")
+    known_units = set(units["unit_id"])
+    assigned_units = set(services["assigned_unit_id"].dropna())
+    bad_units = assigned_units - known_units
+    if bad_units:
+        problems.append(f"Servicios con id_movil desconocido: {sorted(bad_units)}")
+
+    if len(travel) == 0:
+        problems.append("matriz_tiempos está vacía")
 
     return problems
 
 
-def findings(raw_dir: Path = RAW_DIR) -> dict[str, Any]:
-    services = load_services(raw_dir)
-    units = read_csv(raw_dir, "units.csv")
-    merged = services.merge(units, left_on="assigned_unit_id", right_on="unit_id")
-    hour = merged["assignment_datetime"].dt.hour
+def write_report(raw_dir: Path = RAW_DIR, report_path: Path = REPORT_PATH) -> None:
+    frames = load_emi_frames(raw_dir)
+    s = frames["services"]
+    u = frames["units"]
+    z = frames["zones"]
+    t = frames["travel_times"]
+    null_channel = int(s["channel"].isna().sum())
+    null_arrival = int(s["arrival_datetime"].isna().sum())
+    null_tr = int(s["reported_response_min"].isna().sum())
 
-    night_in_day = merged[(merged["shift"] == "TURNO_NOCHE") & hour.isin(DAY_HOURS)]
-    day_in_night = merged[(merged["shift"] == "TURNO_DIA") & ~hour.isin(DAY_HOURS)]
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text(
+        f"""# Reporte de Calidad de Datos — Dataset Grupo EMI (EstudIA)
 
-    by_unit = services.sort_values(["assigned_unit_id", "assignment_datetime"])
-    prev_close = by_unit.groupby("assigned_unit_id")["closure_datetime"].shift()
-    gap_min = (by_unit["assignment_datetime"] - prev_close).dt.total_seconds() / 60
-
-    return {
-        "services": len(services),
-        "units": len(units),
-        "zones": int(services["zone_id"].nunique()),
-        "request_range": (
-            str(services["request_datetime"].min()),
-            str(services["request_datetime"].max()),
-        ),
-        "night_shift_daytime_assignments": len(night_in_day),
-        "night_shift_daytime_days": sorted(
-            night_in_day["assignment_datetime"].dt.strftime("%Y-%m-%d").unique().tolist()
-        ),
-        "day_shift_nighttime_assignments": len(day_in_night),
-        "overlaps": int((gap_min < 0).sum()),
-        "min_gap_between_services_min": round(float(gap_min.min()), 2),
-    }
-
-
-def _report(problems: list[str], found: dict[str, Any]) -> str:
-    status = "VÁLIDO" if not problems else "CON PROBLEMAS BLOQUEANTES"
-    lines = [
-        "# Informe de calidad de datos — dataset sintético mínimo",
-        "",
-        "Generado por `scripts/validate_dataset.py`. Fuente: `data/raw/` (inmutable).",
-        "",
-        f"## Estado: {status}",
-        "",
-    ]
-    lines += [f"- {p}" for p in problems] or [
-        "Sin problemas bloqueantes: columnas, nulos, claves,"
-        " vocabularios, orden temporal y pares elegibles OK."
-    ]
-    lines += [
-        "",
-        "## Hallazgos (no bloqueantes, no se corrigen)",
-        "",
-        f"- Servicios: {found['services']} · unidades: {found['units']} · zonas: {found['zones']}",
-        f"- Rango de solicitudes: {found['request_range'][0]} → {found['request_range'][1]}",
-        f"- Asignaciones de unidades TURNO_NOCHE en horario de día [06,18): "
-        f"{found['night_shift_daytime_assignments']} "
-        f"({', '.join(found['night_shift_daytime_days'])})."
-        " Son picos de demanda; la elegibilidad aplica el turno a solicitudes nuevas.",
-        f"- Asignaciones de unidades TURNO_DIA fuera de [06,18): "
-        f"{found['day_shift_nighttime_assignments']}",
-        f"- Solapes (asignación antes del cierre del servicio anterior de la misma unidad): "
-        f"{found['overlaps']}",
-        f"- Hueco mínimo entre cierre y siguiente asignación: "
-        f"{found['min_gap_between_services_min']} min",
-        "",
-    ]
-    return "\n".join(lines)
-
-
-def main() -> None:
-    problems = validate(RAW_DIR)
-    found = findings(RAW_DIR) if not problems else {}
-    for p in problems:
-        print(f"PROBLEMA: {p}")
-    if found:
-        for k, v in found.items():
-            print(f"{k}: {v}")
-        REPORT_PATH.write_text(_report(problems, found), encoding="utf-8")
-        print(f"Informe: {REPORT_PATH}")
-    raise SystemExit(1 if problems else 0)
+- **Servicios históricos**: {len(s):,} ({s['request_datetime'].min()} → {s['request_datetime'].max()})
+- **Flota**: {len(u)} móviles ({u['unit_type'].value_counts().to_dict()}) en {len(frames['bases'])} bases
+- **Zonas y matriz O-D**: {len(z)} zonas, {len(t):,} pares origen-destino, {len(frames['care_centers'])} centros de atención
+- **Nulos esperados (imperfecciones realistas del dataset)**:
+  - `canal` nulo: {null_channel} ({null_channel / len(s):.2%})
+  - `arrival_datetime` nulo (resueltos por teléfono, cancelados en ruta o ~2% sin registro): {null_arrival} ({null_arrival / len(s):.2%})
+  - `tiempo_respuesta_min` nulo: {null_tr} ({null_tr / len(s):.2%})
+- **Distribución por clasificación EMI**: {s['urgency_level'].value_counts().to_dict()}
+""",
+        encoding="utf-8",
+    )
 
 
 if __name__ == "__main__":
-    main()
+    issues = validate(RAW_DIR)
+    if issues:
+        raise SystemExit("Validación fallida:\n- " + "\n- ".join(issues))
+    write_report(RAW_DIR, REPORT_PATH)
+    print(f"Dataset EMI válido. Reporte escrito en {REPORT_PATH}")

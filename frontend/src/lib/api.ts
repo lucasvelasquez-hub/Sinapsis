@@ -1,15 +1,21 @@
 import type {
   AnalyticsDemand,
+  AdvanceClockOut,
   Catalog,
   AnalyticsOverview,
+  CompleteServiceOut,
   DecisionOut,
   EligibilityEvaluation,
   HealthResponse,
+  KpisOverview,
   RecommendationOut,
   RequestDetail,
   RequestSummary,
+  ScenarioEvaluation,
+  ScenarioSummary,
   ScoringConfig,
   ServiceType,
+  SimulationState,
   UnitStatus,
   UrgencyLevel,
 } from "@/types/core";
@@ -134,9 +140,57 @@ export const coreApi = {
   updateScoringConfig: (payload: {
     weight_time: number;
     weight_workload: number;
+    weight_cost?: number;
+    weight_coverage?: number;
   }) =>
     apiFetch<ScoringConfig>("/config/scoring", {
       method: "PUT",
       body: JSON.stringify(payload),
+    }),
+
+  getKpisOverview: () => apiFetch<KpisOverview>("/benchmarks/kpis"),
+
+  listScenarios: () => apiFetch<ScenarioSummary[]>("/benchmarks/scenarios"),
+
+  evaluateScenario: (scenarioId: string) =>
+    apiFetch<ScenarioEvaluation>(`/benchmarks/scenarios/${scenarioId}/evaluate`, {
+      method: "POST",
+    }),
+
+  getSimulationState: () => apiFetch<SimulationState>("/simulation/state"),
+
+  sendSimulationPositions: (
+    positions: Array<{ unit_id: string; lat: number; lon: number; zone_id?: string }>
+  ) =>
+    apiFetch<{ updated: number }>("/simulation/positions", {
+      method: "POST",
+      body: JSON.stringify({ positions }),
+    }),
+
+  arriveSimulationService: (serviceId: string) =>
+    apiFetch<{ service_id: string; arrival_datetime: string }>(
+      `/simulation/arrive/${serviceId}`,
+      { method: "POST" }
+    ),
+
+  completeSimulationService: (
+    serviceId: string,
+    payload?: { closure_state: string; destination_center_id?: string | null }
+  ) =>
+    apiFetch<CompleteServiceOut>(`/simulation/complete/${serviceId}`, {
+      method: "POST",
+      body: payload ? JSON.stringify(payload) : undefined,
+    }),
+
+  advanceSimulationClock: (minutes: number) =>
+    apiFetch<AdvanceClockOut>("/simulation/advance-clock", {
+      method: "POST",
+      body: JSON.stringify({ minutes }),
+    }),
+
+  generateSimulationRequests: (count = 4) =>
+    apiFetch<{ created: Array<{ service_id: string }> }>("/simulation/generate", {
+      method: "POST",
+      body: JSON.stringify({ count }),
     }),
 };

@@ -26,9 +26,33 @@ class ExclusionCode(StrEnum):
 
 
 class UrgencyLevel(StrEnum):
-    """Urgencias del dataset, de mayor a menor (CHECK `ck_services_urgency`)."""
+    """Clasificación EMI de mayor a menor prioridad (CHECK `ck_services_urgency`).
 
-    CRITICA = "CRITICA"
-    ALTA = "ALTA"
-    MEDIA = "MEDIA"
-    BAJA = "BAJA"
+    Orden: 01 (ROJO, 15m) > 02 (NARANJA, 20m) > 07 (AMARILLO, 45m) > 03 (VERDE, 90m)
+    > 06 (AZUL, 180m).
+    """
+
+    EMI_01 = "01"
+    EMI_02 = "02"
+    EMI_07 = "07"
+    EMI_03 = "03"
+    EMI_06 = "06"
+
+
+class CompatibilityLevel(StrEnum):
+    """Matriz de compatibilidad clasificación EMI vs tipo de móvil (doc 03)."""
+
+    PREFERIDA = "PREFERIDA"
+    PERMITIDA = "PERMITIDA"
+    SOLO_ESTABILIZACION = "SOLO_ESTABILIZACION"
+    NO_RECOMENDADA = "NO_RECOMENDADA"
+    NO_PERMITIDA = "NO_PERMITIDA"
+
+
+class UnitRole(StrEnum):
+    """Rol operativo de la móvil en el servicio."""
+
+    ATENCION = "ATENCION"
+    ATENCION_Y_TRASLADO = "ATENCION_Y_TRASLADO"
+    PRIMER_RESPONDIENTE_ESTABILIZACION = "PRIMER_RESPONDIENTE_ESTABILIZACION"
+    TRASLADO = "TRASLADO"

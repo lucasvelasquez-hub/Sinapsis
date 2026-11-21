@@ -39,11 +39,21 @@ export function SimulateRequestModal({
   const {
     register,
     handleSubmit,
+    watch,
+    setValue,
     formState: { errors },
   } = useForm<FormValues>({
     resolver: zodResolver(schema),
     defaultValues: { urgency_level: "", service_type: "", zone_id: "" },
   });
+
+  const selectedUrgency = watch("urgency_level");
+  const availableServiceTypes = useMemo(() => {
+    if (selectedUrgency && catalog?.service_types_by_urgency?.[selectedUrgency]?.length) {
+      return catalog.service_types_by_urgency[selectedUrgency];
+    }
+    return catalog?.service_types ?? [];
+  }, [catalog, selectedUrgency]);
 
   const mutation = useMutation({
     mutationFn: (data: FormValues) => coreApi.simulateRequest(data),
@@ -58,7 +68,7 @@ export function SimulateRequestModal({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/70 p-4">
       <div className="w-full max-w-md rounded-lg border border-slate-700 bg-slate-900 p-6 shadow-2xl">
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-base font-semibold text-white">
@@ -84,7 +94,9 @@ export function SimulateRequestModal({
               Nivel de Urgencia
             </label>
             <select
-              {...register("urgency_level")}
+              {...register("urgency_level", {
+                onChange: () => setValue("service_type", ""),
+              })}
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
               <option value="">Selecciona…</option>
@@ -110,7 +122,7 @@ export function SimulateRequestModal({
               className="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100"
             >
               <option value="">Selecciona…</option>
-              {catalog?.service_types.map((t) => (
+              {availableServiceTypes.map((t) => (
                 <option key={t} value={t}>
                   {t}
                 </option>

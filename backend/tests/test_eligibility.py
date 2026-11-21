@@ -11,7 +11,9 @@ from app.services.simulation_service import mark_unit_assigned_in_simulation
 
 
 def test_every_exclusion_has_codes_aligned_with_reasons(db: Session) -> None:
-    service = db.execute(select(RawService).limit(1)).scalar_one()
+    service = db.execute(
+        select(RawService).where(RawService.urgency_level == "06").limit(1)
+    ).scalar_one()
 
     evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
 
@@ -34,35 +36,38 @@ def test_exclusion_reason_parses_legacy_json_without_codes() -> None:
     assert ex.reason_codes == [ExclusionCode.OUT_OF_SHIFT]
 
 
-def _service_of_type(db: Session, service_type: str) -> RawService:
+def _service_of_urgency(db: Session, urgency_level: str) -> RawService:
     return db.execute(
-        select(RawService).where(RawService.service_type == service_type).limit(1)
+        select(RawService)
+        .where(RawService.urgency_level == urgency_level)
+        .order_by(RawService.request_datetime.desc())
+        .limit(1)
     ).scalar_one()
 
 
 def test_ineligible_rule_excludes_with_incompatible_type(db: Session) -> None:
-    service = _service_of_type(db, "EVENTO_ESPECIAL")
+    service = _service_of_urgency(db, "06")
 
     evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
 
-    basicas = [ex for ex in evaluation.excluded_units if ex.unit_type == "BASICA"]
-    assert len(basicas) == 15
-    assert all(ExclusionCode.INCOMPATIBLE_TYPE in ex.reason_codes for ex in basicas)
-    assert not any(u.unit_type == "BASICA" for u in evaluation.eligible_units)
+    ambulances = [ex for ex in evaluation.excluded_units if ex.unit_type in ("TAM", "TAB")]
+    assert len(ambulances) > 0
+    assert all(ExclusionCode.INCOMPATIBLE_TYPE in ex.reason_codes for ex in ambulances)
+    assert not any(u.unit_type in ("TAM", "TAB") for u in evaluation.eligible_units)
 
 
-def test_all_eligible_units_have_rank_one(db: Session) -> None:
-    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+def test_eligible_units_carry_compatibility_ranks(db: Session) -> None:
+    service = _service_of_urgency(db, "01")
 
     evaluation, ranks = evaluate_eligibility(db, service, service.request_datetime)
 
     assert evaluation.eligible_units
-    assert set(ranks.values()) == {1}
+    assert set(ranks.values()).issubset({1, 2, 3})
     assert set(ranks) == {u.unit_id for u in evaluation.eligible_units}
 
 
 def test_capacity_is_no_longer_an_exclusion(db: Session) -> None:
-    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+    service = _service_of_urgency(db, "01")
 
     evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
 
@@ -75,7 +80,7 @@ def test_capacity_is_no_longer_an_exclusion(db: Session) -> None:
 def test_a_request_is_not_blocked_by_its_own_simulated_assignment(db: Session) -> None:
     """Al revisar una solicitud ya despachada, su unidad no aparece ocupada por ella misma;
     otra solicitud en el mismo instante sí la ve ocupada."""
-    service = _service_of_type(db, "EMERGENCIA_MEDICA")
+    service = _service_of_urgency(db, "01")
     evaluation, _ = evaluate_eligibility(db, service, service.request_datetime)
     unit_id = evaluation.eligible_units[0].unit_id
     mark_unit_assigned_in_simulation(
@@ -88,9 +93,9 @@ def test_a_request_is_not_blocked_by_its_own_simulated_assignment(db: Session) -
     other = RawService(
         service_id="SIM-OTRA",
         request_datetime=service.request_datetime,
-        urgency_level="ALTA",
-        service_type="EMERGENCIA_MEDICA",
-        zone_id="COMUNA_01",
+        urgency_level="02",
+        service_type="Dolor torácico",
+        zone_id="Z-MED-01-01",
         status="PENDING",
         is_synthetic=True,
     )

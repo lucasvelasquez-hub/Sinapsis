@@ -1,7 +1,4 @@
-"""Carga (incremental) de data/raw/*.csv en PostgreSQL + feature engineering.
-
-Recargable aunque existan recomendaciones y decisiones: ver app/services/ingestion_service.py.
-"""
+"""Carga (incremental) del dataset real de Grupo EMI en PostgreSQL + feature engineering."""
 
 from __future__ import annotations
 
@@ -20,7 +17,7 @@ from app.services.feature_service import compute_chronological_features  # noqa:
 from app.services.ingestion_service import DatasetFrames, load_dataset  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from validate_dataset import load_services, read_csv, validate  # noqa: E402
+from validate_dataset import load_emi_frames, validate  # noqa: E402
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
 RAW_DIR = ROOT_DIR / "data" / "raw"
@@ -32,29 +29,44 @@ def main() -> None:
     if problems:
         raise SystemExit("Dataset inválido, no se ingiere:\n- " + "\n- ".join(problems))
 
+    raw_frames = load_emi_frames(RAW_DIR)
     frames = DatasetFrames(
-        targets=read_csv(RAW_DIR, "response_targets.csv"),
-        rules=read_csv(RAW_DIR, "service_rules.csv"),
-        units=read_csv(RAW_DIR, "units.csv"),
-        services=load_services(RAW_DIR),
+        targets=raw_frames["targets"],
+        rules=raw_frames["rules"],
+        bases=raw_frames["bases"],
+        units=raw_frames["units"],
+        zones=raw_frames["zones"],
+        travel_times=raw_frames["travel_times"],
+        traffic_factors=raw_frames["traffic_factors"],
+        care_centers=raw_frames["care_centers"],
+        services=raw_frames["services"],
     )
 
     with SessionLocal() as db:
         report = load_dataset(db, frames)
 
-        if db.get(ScoringConfig, "default") is None:
+        cfg = db.get(ScoringConfig, "default")
+        if cfg is None:
             db.add(
                 ScoringConfig(
                     config_id="default",
-                    weight_time=0.80,
+                    weight_time=0.50,
                     weight_workload=0.20,
-                    weight_cost=0.00,
-                    weight_coverage=0.00,
-                    cost_enabled=False,
-                    coverage_enabled=False,
+                    weight_cost=0.15,
+                    weight_coverage=0.15,
+                    cost_enabled=True,
+                    coverage_enabled=True,
                     updated_at=datetime.now(UTC).replace(tzinfo=None),
                 )
             )
+        elif not cfg.cost_enabled or not cfg.coverage_enabled:
+            cfg.weight_time = 0.50
+            cfg.weight_workload = 0.20
+            cfg.weight_cost = 0.15
+            cfg.weight_coverage = 0.15
+            cfg.cost_enabled = True
+            cfg.coverage_enabled = True
+            cfg.updated_at = datetime.now(UTC).replace(tzinfo=None)
 
         db.commit()
 
@@ -64,14 +76,11 @@ def main() -> None:
             f"{report.services_kept_referenced} conservados por auditoría. "
             f"Unidades: {report.units_upserted} cargadas, {report.units_deleted} borradas, "
             f"{report.units_deactivated} inactivadas por auditoría. "
-            f"{len(frames.rules)} reglas, {len(frames.targets)} objetivos. "
+            f"{len(frames.zones)} zonas, {len(frames.travel_times)} pares O-D. "
             f"{count} service_features."
         )
 
-        # Export processed snapshot for ML reproducibility
         PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-        # computed_at is excluded: the snapshot must be identical across runs (reproducible).
-        # Solo el histórico del dataset: las solicitudes simuladas no forman parte del snapshot.
         features_df = pd.read_sql(
             "SELECT f.* FROM analytics.service_features f"
             " JOIN raw.services s ON s.service_id = f.service_id"

@@ -16,13 +16,13 @@ from app.services.simulation_service import (
 )
 
 
-def _new_request(client: TestClient, when: str = "2026-10-30T10:00:00") -> str:
+def _new_request(client: TestClient, when: str = "2026-05-01T10:00:00") -> str:
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "CRITICA",
-            "service_type": "EMERGENCIA_MEDICA",
-            "zone_id": "COMUNA_01",
+            "urgency_level": "01",
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-01",
             "request_datetime": when,
         },
     )
@@ -184,7 +184,7 @@ def test_dispatch_occupies_unit_from_request_until_median_closure(
         text(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY"
             " EXTRACT(EPOCH FROM (closure_datetime - request_datetime)) / 60.0)"
-            " FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA'"
+            " FROM raw.services WHERE service_type = 'Dolor torácico'"
             " AND NOT is_synthetic AND closure_datetime IS NOT NULL"
         )
     ).scalar_one()

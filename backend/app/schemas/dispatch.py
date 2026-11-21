@@ -15,10 +15,14 @@ class ORMModel(BaseModel):
 class RequestSummary(ORMModel):
     service_id: str
     request_datetime: datetime
-    urgency_level: UrgencyLevel
-    service_type: str  # vocabulario del dataset: GET /api/v1/catalog
+    urgency_level: str
+    manchester_scale: str | None = None
+    service_type: str  # motivo_consulta del dataset: GET /api/v1/catalog
+    discriminator: str | None = None
+    channel: str | None = None
     zone_id: str
     status: ServiceStatus
+    closure_state: str | None = None
     is_synthetic: bool
     assigned_unit_id: str | None = None
     response_time_min: float | None = None
@@ -46,16 +50,15 @@ class RequestDetail(RequestSummary):
 
 class SimulateRequestCreate(BaseModel):
     urgency_level: UrgencyLevel
-    # Se validan contra el catálogo del dataset en request_service (422 si no existen).
-    service_type: str = Field(..., min_length=1, max_length=32)
-    zone_id: str = Field(..., min_length=1, max_length=16)
+    service_type: str = Field(..., min_length=1, max_length=128)
+    zone_id: str = Field(..., min_length=1, max_length=32)
+    discriminator: str | None = Field(default=None, max_length=128)
+    channel: str | None = Field(default="TELEFONO", max_length=24)
     request_datetime: datetime | None = None
 
     @field_validator("request_datetime")
     @classmethod
     def _naive_operational_time(cls, value: datetime | None) -> datetime | None:
-        # El dataset y los turnos usan hora local operativa sin zona. Convertir un offset
-        # exigiría conocer la zona operativa; descartarlo en silencio corrompe la hora.
         if value is not None and value.tzinfo is not None:
             raise ValueError("request_datetime debe ser hora local operativa, sin zona horaria")
         return value
@@ -67,6 +70,12 @@ class UnitStatusOut(BaseModel):
     base_id: str
     shift: str
     capacity: int
+    cost_per_km: float | None = None
+    cost_per_hour: float | None = None
+    current_zone_id: str | None = None
+    current_lat: float | None = None
+    current_lon: float | None = None
+    observation: str | None = None
     active: bool
     simulated_available: bool
     busy_until: datetime | None = None
@@ -79,12 +88,11 @@ class ExclusionReason(BaseModel):
     unit_id: str
     unit_type: str
     reason_codes: list[ExclusionCode]
-    reasons: list[str]  # "<CODE>: <mensaje legible>", alineado con reason_codes
+    reasons: list[str]
 
     @model_validator(mode="before")
     @classmethod
     def _derive_codes_from_legacy_reasons(cls, data: Any) -> Any:
-        # Exclusiones persistidas antes de reason_codes solo guardan el texto.
         if isinstance(data, dict) and "reason_codes" not in data:
             reasons = data.get("reasons") or []
             data = {**data, "reason_codes": [r.split(":", 1)[0] for r in reasons]}
@@ -107,7 +115,14 @@ class RecommendationCandidateOut(BaseModel):
     score: float
     time_penalty: float
     workload_penalty: float
+    cost_penalty: float = 0.0
+    coverage_penalty: float = 0.0
     expected_response_min: float
+    distance_km: float | None = None
+    estimated_travel_min: float | None = None
+    estimated_cost: float | None = None
+    recommended_role: str | None = None
+    paired_unit_id: str | None = None
     estimation_type: str
     workload_4h: int
     workload_8h: int
@@ -188,10 +203,12 @@ class ScoringConfigOut(ORMModel):
 class ScoringConfigUpdate(BaseModel):
     weight_time: float = Field(..., ge=0.0, le=1.0)
     weight_workload: float = Field(..., ge=0.0, le=1.0)
+    weight_cost: float = Field(default=0.0, ge=0.0, le=1.0)
+    weight_coverage: float = Field(default=0.0, ge=0.0, le=1.0)
 
     @model_validator(mode="after")
     def _weights_sum_to_one(self) -> "ScoringConfigUpdate":
-        # MVP: solo tiempo y carga (costo y cobertura desactivados por falta de GPS).
-        if abs(self.weight_time + self.weight_workload - 1.0) > 1e-3:
-            raise ValueError("weight_time + weight_workload debe sumar 1.0")
+        total = self.weight_time + self.weight_workload + self.weight_cost + self.weight_coverage
+        if abs(total - 1.0) > 1e-3:
+            raise ValueError("La suma de pesos (tiempo + carga + costo + cobertura) debe ser 1.0")
         return self

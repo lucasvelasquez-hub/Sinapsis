@@ -70,7 +70,7 @@ def test_every_hour_is_covered_by_exactly_one_12h_shift() -> None:
 
 
 def test_urgency_levels_match_dataset() -> None:
-    assert [u.value for u in UrgencyLevel] == ["CRITICA", "ALTA", "MEDIA", "BAJA"]
+    assert [u.value for u in UrgencyLevel] == ["01", "02", "07", "03", "06"]
 
 
 def test_feature_row_uses_base_id_without_same_zone() -> None:
@@ -78,12 +78,12 @@ def test_feature_row_uses_base_id_without_same_zone() -> None:
         [
             {
                 "request_datetime": datetime(2026, 10, 31, 8, 0),
-                "urgency_level": "ALTA",
-                "service_type": "EMERGENCIA_MEDICA",
-                "zone_id": "COMUNA_01",
-                "unit_type": "BASICA",
-                "base_id": "BASE-01",
-                "shift": "TURNO_DIA",
+                "urgency_level": "02",
+                "service_type": "Dolor torácico",
+                "zone_id": "Z-MED-01-01",
+                "unit_type": "TAB",
+                "base_id": "BAS-01",
+                "shift": "TURNO_24H",
                 "capacity": 2,
             }
         ]
@@ -92,7 +92,7 @@ def test_feature_row_uses_base_id_without_same_zone() -> None:
     assert list(frame.columns) == FEATURE_COLUMNS
     assert "same_zone" not in frame.columns and "base_zone_id" not in frame.columns
     row = frame.iloc[0]
-    assert row.base_id == "BASE-01"
+    assert row.base_id == "BAS-01"
     assert (row.is_weekend, row.is_peak_hour) == (1, 1)
 
 

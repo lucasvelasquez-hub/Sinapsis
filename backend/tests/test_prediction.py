@@ -3,7 +3,6 @@
 import pickle
 from pathlib import Path
 
-import pandas as pd
 import pytest
 import sklearn
 
@@ -66,13 +65,11 @@ def test_committed_artifact_is_compatible() -> None:
 
 def test_urgency_fallback_matches_dataset_response_targets() -> None:
     """Sin artefacto, el tiempo de respaldo por urgencia es el objetivo del dataset."""
-    targets = pd.read_csv(
-        Path(__file__).resolve().parents[2] / "data" / "raw" / "response_targets.csv",
-        encoding="utf-8-sig",
-    )
-    expected = {
-        str(r.urgency_level): float(r.target_response_minutes)
-        for r in targets.itertuples(index=False)
-    }
+    import sys
+
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    from validate_dataset import EMI_TARGETS
+
+    expected = {str(t["urgency_level"]): float(t["target_response_min"]) for t in EMI_TARGETS}
 
     assert FALLBACK_BY_URGENCY == expected

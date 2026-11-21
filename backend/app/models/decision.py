@@ -56,7 +56,18 @@ class RecommendationCandidate(Base):
     score: Mapped[float] = mapped_column(Float, nullable=False)
     time_penalty: Mapped[float] = mapped_column(Float, nullable=False)
     workload_penalty: Mapped[float] = mapped_column(Float, nullable=False)
+    cost_penalty: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default=text("0.0"), nullable=False
+    )
+    coverage_penalty: Mapped[float] = mapped_column(
+        Float, default=0.0, server_default=text("0.0"), nullable=False
+    )
     expected_response_min: Mapped[float] = mapped_column(Float, nullable=False)
+    distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_travel_min: Mapped[float | None] = mapped_column(Float, nullable=True)
+    estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
+    recommended_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    paired_unit_id: Mapped[str | None] = mapped_column(String(16), nullable=True)
     estimation_type: Mapped[str] = mapped_column(String(96), nullable=False)
     workload_4h: Mapped[int] = mapped_column(Integer, nullable=False)
     workload_8h: Mapped[int] = mapped_column(Integer, nullable=False)

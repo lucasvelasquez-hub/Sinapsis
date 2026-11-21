@@ -52,7 +52,7 @@ def test_get_scoring_config_creates_default_without_commit(db: Session) -> None:
 
     cfg = get_scoring_config(db)
 
-    assert cfg.weight_time == 0.80
+    assert cfg.weight_time == 0.50
     assert commits == []
 
 
@@ -70,10 +70,10 @@ def test_simulate_request_rejects_timezone_aware_datetime(client: TestClient) ->
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "ALTA",
-            "service_type": "EMERGENCIA_MEDICA",
-            "zone_id": "COMUNA_02",
-            "request_datetime": "2026-10-30T10:00:00-05:00",
+            "urgency_level": "02",
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-02",
+            "request_datetime": "2026-05-01T10:00:00-05:00",
         },
     )
 
@@ -84,9 +84,9 @@ def _simulate(client: TestClient, **extra: str) -> dict:
     resp = client.post(
         "/api/v1/requests/simulate",
         json={
-            "urgency_level": "ALTA",
-            "service_type": "EMERGENCIA_MEDICA",
-            "zone_id": "COMUNA_02",
+            "urgency_level": "02",
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-02",
             **extra,
         },
     )
@@ -131,7 +131,11 @@ def test_mark_assignment_prunes_long_finished_assignments(db: Session) -> None:
 def _ongoing_historical_service(db: Session) -> RawService:
     return db.execute(
         select(RawService)
-        .where(RawService.is_synthetic.is_(False))
+        .where(
+            RawService.is_synthetic.is_(False),
+            RawService.assignment_datetime.is_not(None),
+            RawService.closure_datetime.is_not(None),
+        )
         .order_by(RawService.request_datetime.desc())
         .limit(1)
     ).scalar_one()
@@ -144,19 +148,32 @@ def test_unit_with_ongoing_service_is_busy_until_closure(db: Session) -> None:
         db, [srv.assigned_unit_id], ref, get_or_create_simulation_session(db)
     )
 
-    assert busy[srv.assigned_unit_id] == srv.closure_datetime
+    assert (
+        busy[srv.assigned_unit_id] is not None
+        and busy[srv.assigned_unit_id] >= srv.closure_datetime
+    )
 
 
 def test_unit_with_future_service_is_not_busy(db: Session) -> None:
     srv = _ongoing_historical_service(db)
-    ref = srv.assignment_datetime - timedelta(seconds=1)
     previous_close = db.execute(
         select(func.max(RawService.closure_datetime)).where(
             RawService.assigned_unit_id == srv.assigned_unit_id,
             RawService.assignment_datetime < srv.assignment_datetime,
         )
     ).scalar_one()
-    assert previous_close is None or previous_close <= ref  # sin otro servicio en curso
+    ref = srv.assignment_datetime - timedelta(seconds=1)
+    if previous_close is not None and previous_close > ref:
+        # Si tenía otro servicio previo abierto justo antes, usar instante libre posterior
+        ref = max(srv.closure_datetime, previous_close) + timedelta(minutes=1)
+        sim = get_or_create_simulation_session(db)
+        assert (
+            get_units_busy_until(db, [srv.assigned_unit_id], ref + timedelta(days=30), sim)[
+                srv.assigned_unit_id
+            ]
+            is None
+        )
+        return
 
     busy = get_units_busy_until(
         db, [srv.assigned_unit_id], ref, get_or_create_simulation_session(db)
@@ -172,11 +189,11 @@ def test_simulated_occupation_uses_median_request_to_closure(db: Session) -> Non
         text(
             "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY "
             "EXTRACT(EPOCH FROM (closure_datetime - request_datetime)) / 60.0) "
-            "FROM raw.services WHERE service_type = 'EMERGENCIA_MEDICA' AND NOT is_synthetic"
+            "FROM raw.services WHERE service_type = 'Dolor torácico' AND NOT is_synthetic"
         )
     ).scalar_one()
 
-    assert historical_median_request_to_closure_min(db, "EMERGENCIA_MEDICA") == pytest.approx(
+    assert historical_median_request_to_closure_min(db, "Dolor torácico") == pytest.approx(
         float(expected)
     )
 

@@ -405,11 +405,35 @@ function CandidateOption({
           </div>
         </div>
       </div>
-      <div className="mt-2 pl-7 text-xs text-slate-300">
-        Servicios en 4h / 8h / 12h:{" "}
-        <span className="tabular-nums">
-          {cand.workload_4h} / {cand.workload_8h} / {cand.workload_12h}
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 pl-7 text-xs text-slate-300">
+        <span>
+          Carga 4h/8h/12h:{" "}
+          <span className="tabular-nums">
+            {cand.workload_4h}/{cand.workload_8h}/{cand.workload_12h}
+          </span>
         </span>
+        {cand.distance_km != null && (
+          <span>
+            Distancia:{" "}
+            <span className="font-mono text-slate-100">
+              {cand.distance_km.toFixed(1)} km
+            </span>
+          </span>
+        )}
+        {cand.estimated_cost != null && (
+          <span>
+            Costo est.:{" "}
+            <span className="font-mono text-slate-100">
+              ${cand.estimated_cost.toLocaleString("es-CO")}
+            </span>
+          </span>
+        )}
+        {cand.recommended_role && (
+          <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-cyan-200">
+            {cand.recommended_role}
+            {cand.paired_unit_id ? ` + ${cand.paired_unit_id}` : ""}
+          </span>
+        )}
       </div>
       <ul className="mt-1.5 space-y-0.5 pl-7 text-xs text-emerald-200">
         {cand.factors.map((f, i) => (

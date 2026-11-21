@@ -15,9 +15,9 @@ def _service(**cols: object) -> RawService:
     base: dict[str, object] = {
         "service_id": "SRV-TEST-1",
         "request_datetime": REQUEST,
-        "urgency_level": "ALTA",
-        "service_type": "EMERGENCIA_MEDICA",
-        "zone_id": "COMUNA_01",
+        "urgency_level": "02",
+        "service_type": "Dolor torácico",
+        "zone_id": "Z-MED-01-01",
         "status": "PENDING",
         "is_synthetic": True,
     }

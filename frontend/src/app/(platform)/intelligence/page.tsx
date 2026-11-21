@@ -19,18 +19,29 @@ export default function IntelligenceCenterPage() {
     queryFn: coreApi.getAnalyticsOverview,
   });
 
-  // Borrador local del slider; sin edición se muestra el valor persistido.
-  const [draftWeightTime, setWeightTime] = useState<number | null>(null);
-  const weightTime = draftWeightTime ?? configQuery.data?.weight_time ?? 0.8;
+  const [draftWeights, setDraftWeights] = useState<{
+    time: number;
+    workload: number;
+    cost: number;
+    coverage: number;
+  } | null>(null);
+  const wTime = draftWeights?.time ?? configQuery.data?.weight_time ?? 0.5;
+  const wWorkload = draftWeights?.workload ?? configQuery.data?.weight_workload ?? 0.2;
+  const wCost = draftWeights?.cost ?? configQuery.data?.weight_cost ?? 0.15;
+  const wCoverage = draftWeights?.coverage ?? configQuery.data?.weight_coverage ?? 0.15;
+  const weightSum = Number((wTime + wWorkload + wCost + wCoverage).toFixed(2));
+  const validSum = Math.abs(weightSum - 1) < 0.005;
 
   const updateMutation = useMutation({
-    mutationFn: (wt: number) =>
+    mutationFn: () =>
       coreApi.updateScoringConfig({
-        weight_time: Number(wt.toFixed(2)),
-        weight_workload: Number((1 - wt).toFixed(2)),
+        weight_time: Number(wTime.toFixed(2)),
+        weight_workload: Number(wWorkload.toFixed(2)),
+        weight_cost: Number(wCost.toFixed(2)),
+        weight_coverage: Number(wCoverage.toFixed(2)),
       }),
     onSuccess: () => {
-      setWeightTime(null);
+      setDraftWeights(null);
       queryClient.invalidateQueries({ queryKey: ["scoring-config"] });
     },
   });
@@ -38,6 +49,15 @@ export default function IntelligenceCenterPage() {
   const metrics = overviewQuery.data?.model_metrics ?? [];
   const valMetrics = metrics.filter((m) => m.split_name === "validation");
   const testMetrics = metrics.filter((m) => m.split_name === "test");
+
+  const setOne = (key: "time" | "workload" | "cost" | "coverage", val: number) => {
+    setDraftWeights({
+      time: key === "time" ? val : wTime,
+      workload: key === "workload" ? val : wWorkload,
+      cost: key === "cost" ? val : wCost,
+      coverage: key === "coverage" ? val : wCoverage,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -56,75 +76,59 @@ export default function IntelligenceCenterPage() {
         <div className="mb-4 flex items-center justify-between">
           <div>
             <h2 className="text-sm font-semibold text-white">
-              Ponderación MCDM: J(j) = w_T · T(j) + w_L · L(j)
+              Ponderación MCDM: J(j) = w_T·T + w_L·L + w_C·C + w_K·K
             </h2>
             <p className="text-xs text-slate-400">
-              Costo operativo y cobertura geográfica permanecen desactivados en MVP v1.0 (sin GPS/distancias).
+              Incluye matriz de tiempos/tráfico, carga reciente, costo operativo (km/h) y cobertura en zonas de demanda ALTA.
             </p>
           </div>
           <ProvenanceBadge type="CALCULADO" />
         </div>
 
         <div className="grid grid-cols-4 gap-4">
-          <div className="col-span-2 rounded border border-slate-800 bg-slate-950/70 p-4">
-            <div className="mb-2 flex justify-between text-xs">
-              <span className="text-cyan-300">
-                Tiempo Esperado T(j): {(weightTime * 100).toFixed(0)}%
-              </span>
-              <span className="text-emerald-300">
-                Carga Operacional L(j): {((1 - weightTime) * 100).toFixed(0)}%
-              </span>
+          {[
+            { key: "time" as const, label: "Tiempo T(j)", val: wTime, color: "text-cyan-300" },
+            { key: "workload" as const, label: "Carga L(j)", val: wWorkload, color: "text-emerald-300" },
+            { key: "cost" as const, label: "Costo C(j)", val: wCost, color: "text-amber-300" },
+            { key: "coverage" as const, label: "Cobertura K(j)", val: wCoverage, color: "text-violet-300" },
+          ].map((item) => (
+            <div key={item.key} className="rounded border border-slate-800 bg-slate-950/70 p-4">
+              <div className="mb-2 flex justify-between text-xs">
+                <span className={item.color}>{item.label}</span>
+                <span className="font-mono font-semibold text-white">
+                  {(item.val * 100).toFixed(0)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.05}
+                value={item.val}
+                onChange={(e) => setOne(item.key, parseFloat(e.target.value))}
+                className="w-full accent-cyan-500"
+              />
             </div>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.05}
-              value={weightTime}
-              onChange={(e) => setWeightTime(parseFloat(e.target.value))}
-              className="w-full accent-cyan-500"
-            />
-            <div className="mt-3 flex justify-end">
-              <button
-                type="button"
-                disabled={updateMutation.isPending}
-                onClick={() => updateMutation.mutate(weightTime)}
-                className="rounded-md bg-cyan-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
-              >
-                {updateMutation.isPending ? "Guardando..." : "Guardar Ponderación"}
-              </button>
-            </div>
-            <ErrorAlert
-              className="mt-3"
-              error={updateMutation.error}
-              onRetry={() => updateMutation.mutate(weightTime)}
-            />
-          </div>
-
-          <div className="rounded border border-slate-800 bg-slate-950/40 p-4 opacity-60">
-            <div className="text-xs font-semibold text-slate-400">
-              Costo Operativo
-            </div>
-            <div className="mt-2 font-mono text-lg text-slate-500">
-              DESACTIVADO
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Requiere distancias reales.
-            </p>
-          </div>
-
-          <div className="rounded border border-slate-800 bg-slate-950/40 p-4 opacity-60">
-            <div className="text-xs font-semibold text-slate-400">
-              Cobertura Futura
-            </div>
-            <div className="mt-2 font-mono text-lg text-slate-500">
-              DESACTIVADO
-            </div>
-            <p className="mt-1 text-[11px] text-slate-500">
-              Requiere geolocalización.
-            </p>
-          </div>
+          ))}
         </div>
+        <div className="mt-4 flex items-center justify-between">
+          <span className={`text-xs ${validSum ? "text-slate-400" : "text-rose-400"}`}>
+            Suma actual: {(weightSum * 100).toFixed(0)}% {validSum ? "(válido)" : "(debe sumar 100%)"}
+          </span>
+          <button
+            type="button"
+            disabled={!validSum || updateMutation.isPending}
+            onClick={() => updateMutation.mutate()}
+            className="rounded-md bg-cyan-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-cyan-500 disabled:opacity-50"
+          >
+            {updateMutation.isPending ? "Guardando..." : "Guardar Ponderación"}
+          </button>
+        </div>
+        <ErrorAlert
+          className="mt-3"
+          error={updateMutation.error}
+          onRetry={() => updateMutation.mutate()}
+        />
       </div>
 
       {/* Model Comparison */}

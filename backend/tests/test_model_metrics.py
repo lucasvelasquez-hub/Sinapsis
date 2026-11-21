@@ -15,6 +15,6 @@ def test_overview_reports_metrics_of_the_loaded_model(client: TestClient, db: Se
     assert body["selected_model"] == "linear_regression_ridge"
     metrics = {(m["model_name"], m["split_name"]): m for m in body["model_metrics"]}
     assert len(metrics) == 6
-    assert metrics[("linear_regression_ridge", "validation")]["mae"] == 4.2111
+    assert metrics[("linear_regression_ridge", "validation")]["mae"] == 12.8912
     assert metrics[("linear_regression_ridge", "validation")]["is_selected"] is True
-    assert metrics[("statistical_baseline", "test")]["mae"] == 3.6898
+    assert metrics[("statistical_baseline", "test")]["mae"] == 17.2944
