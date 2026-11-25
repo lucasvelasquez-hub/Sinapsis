@@ -268,6 +268,7 @@ export default function AburraMap({
   selectedUnitId,
   onSelectUnit,
   heightClass = "h-[560px]",
+  focusPoint = null,
 }: {
   zones: SimZone[];
   bases: SimBase[];
@@ -280,10 +281,12 @@ export default function AburraMap({
   selectedUnitId: string | null;
   onSelectUnit: (unitId: string) => void;
   heightClass?: string;
+  focusPoint?: { lat: number; lon: number; key: string; zoom?: number } | null;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const loadedRef = useRef(false);
+  const lastFocusKeyRef = useRef<string | null>(null);
   const zonePopupRef = useRef<maplibregl.Popup | null>(null);
   const markerPopupRef = useRef<maplibregl.Popup | null>(null);
   const hoveredMarkerRef = useRef(false);
@@ -635,6 +638,20 @@ export default function AburraMap({
       }
     }
   }, [units, bases, activeRequests, liveMap, selectedUnitId, onSelectUnit]);
+
+  // Smoothly fly/zoom to a requested focus point (e.g., assigned unit or selected service)
+  // Triggered only when focusPoint.key changes so manual pan/zoom is never overridden.
+  useEffect(() => {
+    if (!focusPoint || !mapRef.current) return;
+    if (lastFocusKeyRef.current === focusPoint.key) return;
+    lastFocusKeyRef.current = focusPoint.key;
+    mapRef.current.flyTo({
+      center: [focusPoint.lon, focusPoint.lat],
+      zoom: focusPoint.zoom ?? 13.6,
+      duration: 750,
+      essential: true,
+    });
+  }, [focusPoint]);
 
   return (
     <div

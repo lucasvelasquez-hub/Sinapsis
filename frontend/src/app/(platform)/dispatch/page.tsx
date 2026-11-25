@@ -38,7 +38,10 @@ export default function DispatchCenterPage() {
   const queryClient = useQueryClient();
   const { selectedServiceId, filters } = useDispatchStore();
   const [centerView, setCenterView] = useState<CenterView>("hybrid");
-  const [selectedMapUnitId, setSelectedMapUnitId] = useState<string | null>(null);
+  const [manualMapUnit, setManualMapUnit] = useState<{
+    serviceId: string;
+    unitId: string;
+  } | null>(null);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
   const requestsQuery = useQuery({
@@ -161,6 +164,53 @@ export default function DispatchCenterPage() {
     ];
   }, [simState?.active_requests, simState?.zones, detail]);
 
+  const effectiveMapUnitId =
+    manualMapUnit && manualMapUnit.serviceId === detail?.service_id
+      ? manualMapUnit.unitId
+      : (detail?.assigned_unit_id ?? null);
+
+  const handleSelectMapUnit = (unitId: string) => {
+    if (!detail) return;
+    setManualMapUnit({ serviceId: detail.service_id, unitId });
+  };
+
+  const mapFocusPoint = useMemo(() => {
+    if (!detail) return null;
+    if (detail.assigned_unit_id) {
+      const live = tacticalLiveMap[detail.assigned_unit_id];
+      const unit = simUnits.find((u) => u.unit_id === detail.assigned_unit_id);
+      const lat = live?.lat ?? unit?.lat;
+      const lon = live?.lon ?? unit?.lon;
+      if (lat != null && lon != null) {
+        return {
+          lat,
+          lon,
+          zoom: 13.8,
+          key: `${detail.service_id}:unit:${detail.assigned_unit_id}`,
+        };
+      }
+    }
+    const req = focusedRequests.find((r) => r.service_id === detail.service_id);
+    if (req) {
+      return {
+        lat: req.lat,
+        lon: req.lon,
+        zoom: 13.2,
+        key: `${detail.service_id}:zone:${detail.zone_id}`,
+      };
+    }
+    const zone = simZones.find((z) => z.zone_id === detail.zone_id);
+    if (zone) {
+      return {
+        lat: zone.lat_centroid,
+        lon: zone.lon_centroid,
+        zoom: 13.2,
+        key: `${detail.service_id}:zone:${detail.zone_id}`,
+      };
+    }
+    return null;
+  }, [detail, tacticalLiveMap, simUnits, focusedRequests, simZones]);
+
   return (
     <div className="flex flex-col gap-2.5 lg:h-[calc(100vh-5.5rem)]">
       <LastDecisionBanner />
@@ -267,8 +317,9 @@ export default function DispatchCenterPage() {
                         activeRequests={focusedRequests}
                         liveMap={tacticalLiveMap}
                         trafficFactor={simState.traffic_factor ?? 1.0}
-                        selectedUnitId={selectedMapUnitId}
-                        onSelectUnit={setSelectedMapUnitId}
+                        selectedUnitId={effectiveMapUnitId}
+                        onSelectUnit={handleSelectMapUnit}
+                        focusPoint={mapFocusPoint}
                         heightClass="h-[250px]"
                       />
                     ) : (
@@ -334,8 +385,9 @@ export default function DispatchCenterPage() {
                         activeRequests={focusedRequests}
                         liveMap={tacticalLiveMap}
                         trafficFactor={simState.traffic_factor ?? 1.0}
-                        selectedUnitId={selectedMapUnitId}
-                        onSelectUnit={setSelectedMapUnitId}
+                        selectedUnitId={effectiveMapUnitId}
+                        onSelectUnit={handleSelectMapUnit}
+                        focusPoint={mapFocusPoint}
                         heightClass="h-full min-h-[420px]"
                       />
                     </div>
