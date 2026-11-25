@@ -7,10 +7,12 @@ from sqlalchemy import case, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
-from app.domain.enums import ServiceStatus, UrgencyLevel
+from app.domain.enums import CompatibilityLevel, ServiceStatus, UrgencyLevel
 from app.domain.temporal import WINDOW_HOURS, temporal_context, window_counts
-from app.models.raw import RawResponseTarget, RawService
+from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit
 from app.schemas.dispatch import (
+    ReclassifyIn,
+    ReclassifyOut,
     RequestContext,
     RequestDetail,
     RequestSummary,
@@ -25,6 +27,14 @@ DEFAULT_TARGET_MIN = 30
 # Zone demand in the last 4h -> pressure level.
 PRESSURE_THRESHOLDS = ((6, "HIGH"), (3, "MODERATE"))
 SYNTHETIC_DEFAULT_OFFSET = timedelta(minutes=2)
+# Textos de la hoja de clasificaciones del dataset (codigo → escala, descripción).
+_CLASSIFICATION_LABEL = {
+    "01": ("ROJO", "EMERGENCIA - 15 MIN"),
+    "02": ("NARANJA", "URGENCIA - 20 MIN"),
+    "07": ("AMARILLO", "PRIORIZADO"),
+    "03": ("VERDE", "CONSULTA"),
+    "06": ("AZUL", "CONSULTA BANAL"),
+}
 
 
 def demand_pressure_level(zone_demand_4h: int) -> str:
@@ -160,3 +170,71 @@ def create_synthetic_request(db: Session, payload: SimulateRequestCreate) -> Req
     )
     db.commit()
     return get_request_detail(db, service_id)
+
+
+def reclassify_service(db: Session, service_id: str, payload: ReclassifyIn) -> ReclassifyOut:
+    """Cambia el código clínico. No asigna ni libera la móvil."""
+    service = db.get(RawService, service_id, with_for_update=True, populate_existing=True)
+    if service is None:
+        raise ResourceNotFoundError("Service request", service_id)
+    ensure_known_service_values(db, payload.motivo_consulta, service.zone_id)
+
+    code = payload.urgency_level.value
+    reason = _release_reason(db, service, code)
+    scale, description = _CLASSIFICATION_LABEL[code]
+    sim = get_or_create_simulation_session(db)
+    previous = [item for item in (service.classifications_json or []) if isinstance(item, dict)]
+    secuencia = max((int(item.get("secuencia") or 0) for item in previous), default=0) + 1
+    service.classifications_json = [
+        *previous,
+        {
+            "secuencia": secuencia,
+            "codigo": code,
+            "origen": payload.origen,
+            "motivo_consulta": payload.motivo_consulta,
+            "discriminador": payload.discriminador,
+            "fecha_hora": sim.current_sim_datetime.isoformat(timespec="seconds"),
+            "escala_manchester": scale,
+            "descripcion": description,
+        },
+    ]
+    service.urgency_level = code
+    service.service_type = payload.motivo_consulta
+    service.discriminator = payload.discriminador
+    service.manchester_scale = scale
+    record_audit_event(
+        db,
+        event_type="SERVICE_RECLASSIFIED",
+        entity_type="service",
+        entity_id=service.service_id,
+        payload={
+            "urgency_level": code,
+            "origen": payload.origen,
+            "motivo_consulta": payload.motivo_consulta,
+            "discriminador": payload.discriminador,
+            "dispatcher_id": payload.dispatcher_id,
+            "release_recommended": reason is not None,
+        },
+    )
+    db.commit()
+    detail = get_request_detail(db, service.service_id)
+    return ReclassifyOut(
+        **detail.model_dump(), release_recommended=reason is not None, motivo=reason
+    )
+
+
+def _release_reason(db: Session, service: RawService, urgency_level: str) -> str | None:
+    if not service.assigned_unit_id:
+        return None
+    unit = db.get(RawUnit, service.assigned_unit_id)
+    if unit is None:
+        return None
+    rule = db.execute(
+        select(RawServiceRule).where(
+            RawServiceRule.urgency_level == urgency_level,
+            RawServiceRule.unit_type == unit.unit_type,
+        )
+    ).scalar_one_or_none()
+    if rule is None or rule.compatibility_level != CompatibilityLevel.NO_PERMITIDA:
+        return None
+    return f"Regla R07: {unit.unit_type} no permitida para {urgency_level}"

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -46,6 +46,30 @@ class RequestDetail(RequestSummary):
     closure_datetime: datetime | None = None
     service_duration_min: float | None = None
     context: RequestContext
+
+
+class ReclassifyIn(BaseModel):
+    urgency_level: UrgencyLevel
+    origen: Literal["RECLASIFICACION_TELEFONICA", "RECLASIFICACION_EN_SITIO"]
+    motivo_consulta: str = Field(..., min_length=1, max_length=128)
+    discriminador: str = Field(..., min_length=1, max_length=128)
+    dispatcher_id: str = Field(
+        ...,
+        min_length=2,
+        max_length=64,
+        pattern=r"^[\w.@-]+$",
+        description="Identificador del despachador que reclasifica (sin autenticación aún).",
+    )
+
+    @field_validator("dispatcher_id", mode="before")
+    @classmethod
+    def _strip_dispatcher(cls, value: object) -> object:
+        return value.strip() if isinstance(value, str) else value
+
+
+class ReclassifyOut(RequestDetail):
+    release_recommended: bool = False
+    motivo: str | None = None
 
 
 class SimulateRequestCreate(BaseModel):
