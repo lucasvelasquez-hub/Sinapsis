@@ -209,14 +209,22 @@ function buildZonesGeoJson(
 
 function buildRoutesGeoJson(
   activeRequests: SimRequest[],
-  liveMap: Record<string, LivePos>
+  liveMap: Record<string, LivePos>,
+  units: SimUnit[],
+  bases: SimBase[],
 ): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
   const drawnUnits = new Set<string>();
+  const unitsById = new Map(units.map((u) => [u.unit_id, u]));
+  const basesById = new Map(bases.map((b) => [b.base_id, b]));
   for (const r of activeRequests) {
     if (r.status === "DISPATCHED" && r.assigned_unit_id && !r.arrival_datetime) {
+      if (drawnUnits.has(r.assigned_unit_id)) continue;
+      const unit = unitsById.get(r.assigned_unit_id);
+      if (!unit) continue;
+      if (resolveUnitOperationalState(unit, activeRequests, basesById) !== "EN_RUTA") continue;
       const pos = liveMap[r.assigned_unit_id];
-      if (pos?.route && pos.route.length >= 1) {
+      if (pos?.route && pos.route.length >= 1 && pos.targetZoneId === r.zone_id) {
         const remaining = pos.route.slice(pos.routeIdx ?? 0);
         if (remaining.length >= 1) {
           drawnUnits.add(r.assigned_unit_id);
@@ -237,7 +245,9 @@ function buildRoutesGeoJson(
   }
   // Rutas de móviles EN_TRASLADO dirigiéndose a clínica/hospital
   for (const [uid, pos] of Object.entries(liveMap)) {
-    if (!pos.transferring || drawnUnits.has(uid) || !pos.route || pos.route.length < 1) continue;
+    if (!pos.transferring || pos.atClinic || drawnUnits.has(uid) || !pos.route || pos.route.length < 1) continue;
+    const unit = unitsById.get(uid);
+    if (!unit || resolveUnitOperationalState(unit, activeRequests, basesById) !== "EN_TRASLADO") continue;
     const remaining = pos.route.slice(pos.routeIdx ?? 0);
     if (remaining.length >= 1) {
       features.push({
@@ -297,6 +307,7 @@ export default function AburraMap({
   >(new Map());
   const latestDataRef = useRef({
     zones,
+    bases,
     units,
     activeRequests,
     liveMap,
@@ -307,6 +318,7 @@ export default function AburraMap({
   useEffect(() => {
     latestDataRef.current = {
       zones,
+      bases,
       units,
       activeRequests,
       liveMap,
@@ -314,7 +326,7 @@ export default function AburraMap({
       trafficFactor,
       focusPoint,
     };
-  }, [zones, units, activeRequests, liveMap, layerMode, trafficFactor, focusPoint]);
+  }, [zones, bases, units, activeRequests, liveMap, layerMode, trafficFactor, focusPoint]);
 
   // Initialize MapLibre GL map once (bearing -90 rotates map 90° clockwise: North right, South left;
   // vector tiles keep all street and neighborhood labels upright automatically)
@@ -354,6 +366,7 @@ export default function AburraMap({
       loadedRef.current = true;
       const {
         zones: curZones,
+        bases: curBases,
         units: curUnits,
         activeRequests: curReqs,
         liveMap: curLive,
@@ -408,7 +421,7 @@ export default function AburraMap({
 
       map.addSource("routes", {
         type: "geojson",
-        data: buildRoutesGeoJson(curReqs, curLive),
+        data: buildRoutesGeoJson(curReqs, curLive, curUnits, curBases),
       });
       map.addLayer({
         id: "routes-line",
@@ -518,7 +531,7 @@ export default function AburraMap({
 
     if (loadedRef.current) {
       const src = map.getSource("routes") as maplibregl.GeoJSONSource | undefined;
-      src?.setData(buildRoutesGeoJson(activeRequests, liveMap));
+      src?.setData(buildRoutesGeoJson(activeRequests, liveMap, units, bases));
     }
 
     for (const m of requestMarkersRef.current) m.remove();
@@ -544,7 +557,7 @@ export default function AburraMap({
         .addTo(map);
       requestMarkersRef.current.push(marker);
     }
-  }, [activeRequests, liveMap]);
+  }, [activeRequests, liveMap, units, bases]);
 
   // Update moving mobile markers smoothly in place
   useEffect(() => {
