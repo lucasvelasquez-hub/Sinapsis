@@ -45,3 +45,7 @@ frontend/.env.local
 *~
 backend/.env.*
 !backend/.env.example
+
+# Herramientas locales / temporales
+.playwright-mcp/
+backend/.ua/
