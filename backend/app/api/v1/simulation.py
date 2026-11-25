@@ -23,6 +23,7 @@ from app.services.simulation_control_service import (
     generate_random_requests,
     get_simulation_state,
     ingest_live_positions,
+    release_unit_in_simulation,
 )
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
@@ -51,6 +52,13 @@ def simulation_complete_service(
     payload: Annotated[CompleteServiceIn | None, Body()] = None,
 ) -> CompleteServiceOut:
     return complete_service_in_simulation(db, service_id, payload)
+
+
+@router.post("/release/{service_id}", response_model=CompleteServiceOut)
+def simulation_release_unit(service_id: str, db: DbDep) -> CompleteServiceOut:
+    result = release_unit_in_simulation(db, service_id)
+    db.commit()
+    return result
 
 
 @router.post("/advance-clock", response_model=AdvanceClockOut)

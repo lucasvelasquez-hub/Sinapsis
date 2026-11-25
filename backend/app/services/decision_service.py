@@ -80,6 +80,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             service_id=service.service_id,
             start_dt=service.request_datetime,
             duration_min=historical_median_request_to_closure_min(db, service.service_type),
+            urgency_level=service.urgency_level,
         )
     else:
         service.status = ServiceStatus.REJECTED

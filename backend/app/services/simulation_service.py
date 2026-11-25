@@ -228,6 +228,37 @@ def update_live_positions(db: Session, updates: dict[str, dict]) -> SimulationSe
     return sim
 
 
+def update_assignment_fields(
+    db: Session, unit_id: str, service_id: str, **fields: object
+) -> SimulationSession:
+    """Reescribe la entrada de ocupación. Reasigna el JSON para que SQLAlchemy lo vea."""
+    sim = get_or_create_simulation_session(db, for_update=True)
+    assignments = dict(sim.active_assignments_json or {})
+    raw_entries = assignments.get(unit_id) or []
+    entries = [raw_entries] if isinstance(raw_entries, dict) else list(raw_entries)
+    updated = []
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("service_id") == service_id:
+            entry = {**entry, **fields}
+        updated.append(entry)
+    assignments[unit_id] = updated
+    sim.active_assignments_json = assignments
+    sim.updated_at = utcnow()
+    db.add(sim)
+    return sim
+
+
+def assignment_field(
+    sim: SimulationSession, unit_id: str, service_id: str, field: str
+) -> object | None:
+    raw_entries = (sim.active_assignments_json or {}).get(unit_id) or []
+    entries = [raw_entries] if isinstance(raw_entries, dict) else raw_entries
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("service_id") == service_id:
+            return entry.get(field)
+    return None
+
+
 def release_service_in_simulation(db: Session, unit_id: str, service_id: str) -> SimulationSession:
     sim = get_or_create_simulation_session(db, for_update=True)
     assignments = dict(sim.active_assignments_json or {})
@@ -251,6 +282,7 @@ def mark_unit_assigned_in_simulation(
     service_id: str,
     start_dt: datetime,
     duration_min: float,
+    urgency_level: str | None = None,
 ) -> SimulationSession:
     """Update simulation session after human dispatch decision."""
     sim = get_or_create_simulation_session(db, for_update=True)
@@ -258,13 +290,15 @@ def mark_unit_assigned_in_simulation(
     previous = assignments.get(unit_id) or []
     unit_entries = [previous] if isinstance(previous, dict) else list(previous)
     busy_until = start_dt + timedelta(minutes=duration_min)
-    unit_entries.append(
-        {
-            "service_id": service_id,
-            "assigned_at": start_dt.isoformat(),
-            "busy_until": busy_until.isoformat(),
-        }
-    )
+    entry = {
+        "service_id": service_id,
+        "assigned_at": start_dt.isoformat(),
+        "busy_until": busy_until.isoformat(),
+        "state": "EN_RUTA",
+    }
+    if urgency_level is not None:
+        entry["urgency_level"] = urgency_level
+    unit_entries.append(entry)
     assignments[unit_id] = unit_entries
     if start_dt > sim.current_sim_datetime:
         sim.current_sim_datetime = start_dt
