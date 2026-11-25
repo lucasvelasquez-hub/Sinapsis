@@ -235,6 +235,16 @@ export default function SimulationPage() {
             targetZoneId: u.current_zone_id || zones[0].zone_id,
           };
           const assignedReq = reqByUnit.get(u.unit_id);
+          // En EN_ATENCION la móvil permanece estacionada en el sitio del paciente (Doc 04 Sec. 5)
+          if (assignedReq?.arrival_datetime) {
+            next[u.unit_id] = {
+              lat: assignedReq.lat,
+              lon: assignedReq.lon,
+              targetZoneId: assignedReq.zone_id,
+            };
+            continue;
+          }
+
           let tgtLat: number;
           let tgtLon: number;
           let tgtZone = cur.targetZoneId;
