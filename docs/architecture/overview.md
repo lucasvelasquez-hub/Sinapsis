@@ -1,17 +1,23 @@
-# CORE — Arquitectura del Sistema (MVP v1.0)
+# CORE — Arquitectura del Sistema (Reglas EMI)
 
 ## Propósito
-CORE (**Control Optimizado de Rutas y Emergencias**) es un *Intelligent Dispatch Decision Support System* (IDSS) diseñado como monolito modular para asistir al despachador humano en la asignación de unidades móviles de emergencia.
+CORE (**Control Optimizado de Rutas y Emergencias**) es un *Intelligent Dispatch Decision Support System* (IDSS) diseñado como monolito modular para asistir al despachador humano en la asignación de unidades móviles de emergencia. La decisión final es siempre humana y queda registrada en `decision.dispatch_decisions`.
 
 ## Flujo Funcional (7 Nodos)
-1. **Recepción y Contextualización**: Validación de solicitud (`service_id`, `request_datetime`, `urgency_level`, `service_type`, `zone_id`), consulta de objetivo de respuesta (`response_targets`) y construcción de contexto temporal/territorial.
+1. **Recepción y Contextualización**: Validación de solicitud (`service_id`, `request_datetime`, `urgency_level`, `service_type`, `zone_id`), consulta de objetivo de respuesta (`raw.response_targets`), ordenamiento de cola por prioridad EMI (`01` > `02` > `07` > `03` > `06`, regla R01) y aviso `Regla R02` cuando un `01`/`02` supera `2 min` en despacho. Permite reclasificación (`POST /api/v1/requests/{service_id}/reclassify`, regla R07) sin asignar ni liberar automáticamente la móvil.
 2. **Eligibility Engine**: Filtro duro $A(i,j) = E(i,j) \times S(j,t) \times D(j,t) \in \{0, 1\}$. Registra motivos explícitos de exclusión.
-   - $E$: existe la regla (`service_type`, `unit_type`) con `eligible = true` en `raw.service_rules` y la unidad está activa. El dataset no define capacidad mínima.
+   - $E$: existe la regla (`urgency_level`, `unit_type`) con `eligible = true` en `raw.service_rules` y la unidad está activa (`active = true`, regla R05).
    - $S$: el turno cubre la hora de la solicitud: `TURNO_DIA` [06, 18), `TURNO_NOCHE` [18, 06), `TURNO_24H` siempre.
-   - $D$: la unidad no está ocupada en $t$: no tiene un servicio histórico con `assignment_datetime ≤ t < closure_datetime` ni una asignación simulada vigente (la ocupación simulada empieza en la solicitud y dura la mediana solicitud → cierre del tipo de servicio).
-   - Todas las unidades elegibles tienen el mismo rango de compatibilidad (1): el dataset no prioriza tipos de unidad y decide $J$ (en empate, el tiempo esperado).
-3. **Evaluation Engine / MCDM**: Scoring $J(j) = w_T \cdot T(j) + w_L \cdot L(j)$ con $T(j), L(j) \in [0, 100]$, pesos iniciales $w_T = 0.80, w_L = 0.20$ (costo y cobertura desactivados por ausencia de GPS/distancias).
-4. **Prediction & Operational Simulation**: Análisis histórico de tiempos, demanda por zona/franja/urgencia, carga por móvil en ventanas de 4h/8h/12h y simulación cronológica sin *data leakage*.
-5. **Recommendation Engine**: Top 3 alternativas explicables con advertencias y estado explícito cuando no hay unidades elegibles.
-6. **Feedback & Audit**: Registro inmutable de decisiones humanas (`accepted`, `assigned_unit_id`, `rejection_reason`) y eventos de auditoría.
-7. **Operational Analytics & Planning**: Indicadores históricos, cumplimiento SLA y utilización de flota.
+   - $D$: la unidad no está ocupada en $t$ (ni en histórico ni en simulación, incluyendo retención hospitalaria `EN_TRASLADO` hasta que se reporte su liberación, regla D08).
+   - **Excepción R06 (desvío en ruta)**: para solicitudes `01` o `02`, una unidad `EN_RUTA` hacia un `03` o `06` que aún no ha llegado (`arrival_datetime IS NULL`) puede entrar como candidata elegible con el factor explícito `Regla R06:`. El desvío solo se ejecuta si el despachador confirma la decisión (operación atómica que devuelve el servicio origen a `PENDING` y lo audita).
+   - El rango de compatibilidad se guarda en el candidato; no adelanta a una móvil que llega fuera de la banda de `3 min`.
+3. **Evaluation Engine**: El orden lo fija la política pura `domain/assignment_policy.py` (reglas D01–D08 y R01–R04).
+   - **Tiempo de llegada (D01)**: matriz origen-destino (`raw.zone_travel_times`) × factor de tráfico (`raw.traffic_factors`) y distancia Haversine con posiciones en vivo/simuladas.
+   - **Códigos `01` (meta `12 min`) y `02` (meta `20 min`)**: fuera de la banda de `3 min` (D02) manda el menor tiempo de llegada. Dentro de la banda de `3 min` desempata el menor costo, luego la carga operativa (D04) y, en `02`, una `TAB` antes que una `TAM` (D05). Si ninguna ambulancia cumple la meta o tarda más de `15 min`, se sugiere apoyo de `VMD` como primer respondiente (R04 / D07) junto con la ambulancia emparejada.
+   - **Códigos `07`, `03` y `06`**: va primero quien cumple la meta; un `07` con traslado probable (caída, herida o deshidratación, D06) prioriza `TAB` que llegue a tiempo. Dejar una zona `ALTA` sin ambulancia a `≤20 min` (D03) penaliza la opción en `07`/`03`/`06` y emite aviso en `01`/`02`.
+   - **Reserva R01**: si existe otro `01`/`02` pendiente cuya única ambulancia a tiempo es una candidata, esta pasa al final en servicios menos prioritarios con aviso explícito.
+   - El score compuesto (`core.scoring_config`, pesos `0.50/0.20/0.15/0.15`) se reporta como referencia explicable, pero **no reordena por encima de la política EMI**.
+4. **Prediction & Operational Simulation**: Análisis histórico de tiempos, demanda por zona/franja/urgencia, carga por móvil en ventanas de 4h/8h/12h, mediana histórica de retención por centro de atención (D08) y simulación cronológica sin *data leakage*. El replay de los 14 escenarios (`scenario_replay.py`) avanza un reloj en memoria aplicando eventos (`MOVIL_LIBERADA`, `CANCELACION`, `RECLASIFICACION_*`, `REASIGNACION`) y **no escribe decisiones ni auditoría** en la base de datos.
+5. **Recommendation Engine**: Top 3 alternativas explicables con factores, advertencias y estado explícito `NO_ELIGIBLE_UNITS` cuando no hay unidades elegibles.
+6. **Feedback & Audit**: Registro inmutable (solo inserción a nivel DB) de decisiones humanas (`accepted`, `assigned_unit_id`, `rejection_reason`, `dispatcher_id`) y eventos de auditoría (`DIVERSION_ACCEPTED`, `SERVICE_RECLASSIFIED`, `UNIT_HELD_FOR_TRANSFER`, `UNIT_RELEASED`, `UNIT_RELEASED_ON_CANCEL`).
+7. **Operational Analytics & Benchmarks**: 12 KPIs del reto EMI separando procedencia `OBSERVADO` (histórico no sintético en DB) y `SIMULADO` (agregación del replay de los 14 escenarios de referencia), cumplimiento SLA y utilización de flota.

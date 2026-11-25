@@ -4,6 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ConflictError, CoreDomainError, ResourceNotFoundError
+from app.domain.assignment_policy import DESVIO_PREFIX
 from app.domain.enums import ServiceStatus
 from app.domain.temporal import utcnow
 from app.models.decision import DispatchDecision, Recommendation, RecommendationCandidate
@@ -14,6 +15,7 @@ from app.services.eligibility_service import evaluate_eligibility
 from app.services.simulation_service import (
     historical_median_request_to_closure_min,
     mark_unit_assigned_in_simulation,
+    release_service_in_simulation,
 )
 
 
@@ -22,11 +24,11 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
 
     Locks the service row first (then the simulation session): a concurrent decision on the
     same service waits and then sees it already decided (409) instead of failing on the
-    unique constraint. Lock order service → session everywhere avoids deadlocks.
+    unique constraint. Lock order service → session everywhere avoids deadlocks. An R06
+    diversion locks both service rows in ascending id order before the session.
     """
-    service = db.get(RawService, payload.service_id, with_for_update=True, populate_existing=True)
-    if service is None:
-        raise ResourceNotFoundError("Service request", payload.service_id)
+    origin_id = _accepted_diversion_origin(db, payload)
+    service, locked = _lock_services(db, payload.service_id, origin_id)
 
     if payload.assigned_unit_id:
         unit = db.get(RawUnit, payload.assigned_unit_id)
@@ -43,6 +45,8 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             f"Service '{service.service_id}' already has status {service.status}.",
             code="SERVICE_ALREADY_DECIDED",
         )
+
+    origin = _require_open_diversion(locked, origin_id, payload.assigned_unit_id)
 
     recommendation_score = _validated_recommendation_score(db, payload)
     eligibility_override = (
@@ -69,6 +73,23 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
     )
     db.add(decision)
 
+    if origin is not None and payload.assigned_unit_id:
+        release_service_in_simulation(db, payload.assigned_unit_id, origin.service_id)
+        origin.assigned_unit_id = None
+        origin.status = ServiceStatus.PENDING
+        record_audit_event(
+            db,
+            event_type="DIVERSION_ACCEPTED",
+            entity_type="service",
+            entity_id=origin.service_id,
+            payload={
+                "origin_service_id": origin.service_id,
+                "service_id": service.service_id,
+                "assigned_unit_id": payload.assigned_unit_id,
+                "dispatcher_id": payload.dispatcher_id,
+            },
+        )
+
     if payload.assigned_unit_id:
         service.assigned_unit_id = payload.assigned_unit_id
         service.status = ServiceStatus.DISPATCHED
@@ -80,6 +101,7 @@ def record_dispatch_decision(db: Session, payload: DecisionCreate) -> DecisionOu
             service_id=service.service_id,
             start_dt=service.request_datetime,
             duration_min=historical_median_request_to_closure_min(db, service.service_type),
+            urgency_level=service.urgency_level,
         )
     else:
         service.status = ServiceStatus.REJECTED
@@ -155,6 +177,68 @@ def _validated_recommendation_score(db: Session, payload: DecisionCreate) -> flo
             code="RECOMMENDATION_MISMATCH",
         )
     return candidate.score
+
+
+def _accepted_diversion_origin(db: Session, payload: DecisionCreate) -> str | None:
+    """Service id tagged DESVIO: on the accepted candidate. Read before any lock."""
+    if not payload.accepted or not payload.assigned_unit_id or payload.recommendation_id is None:
+        return None
+    candidate = db.execute(
+        select(RecommendationCandidate).where(
+            RecommendationCandidate.recommendation_id == payload.recommendation_id,
+            RecommendationCandidate.unit_id == payload.assigned_unit_id,
+        )
+    ).scalar_one_or_none()
+    if candidate is None:
+        return None
+    for factor in candidate.factors_json or []:
+        if isinstance(factor, str) and factor.startswith(DESVIO_PREFIX):
+            origin_id = factor.removeprefix(DESVIO_PREFIX)
+            return origin_id or None
+    return None
+
+
+def _lock_services(
+    db: Session, service_id: str, origin_id: str | None
+) -> tuple[RawService, dict[str, RawService | None]]:
+    """Lock the new service and, for R06, the origin, in ascending service-id order."""
+    ids = [service_id]
+    if origin_id and origin_id != service_id:
+        ids.append(origin_id)
+    locked: dict[str, RawService | None] = {}
+    for sid in sorted(ids):
+        row = db.get(RawService, sid, with_for_update=True, populate_existing=True)
+        if sid == service_id and row is None:
+            raise ResourceNotFoundError("Service request", service_id)
+        locked[sid] = row
+    service = locked[service_id]
+    if service is None:
+        raise ResourceNotFoundError("Service request", service_id)
+    return service, locked
+
+
+def _require_open_diversion(
+    locked: dict[str, RawService | None],
+    origin_id: str | None,
+    unit_id: str | None,
+) -> RawService | None:
+    """409 before any write when the diverted service is no longer en route."""
+    if origin_id is None:
+        return None
+    origin = locked.get(origin_id)
+    still_en_route = (
+        origin is not None
+        and unit_id is not None
+        and origin.status == ServiceStatus.DISPATCHED
+        and origin.arrival_datetime is None
+        and origin.assigned_unit_id == unit_id
+    )
+    if not still_en_route:
+        raise ConflictError(
+            "La móvil ya no va en ruta hacia el servicio que se iba a desviar.",
+            code="DIVERSION_NOT_EN_ROUTE",
+        )
+    return origin
 
 
 def _eligibility_override(db: Session, service: RawService, unit_id: str) -> list[str]:

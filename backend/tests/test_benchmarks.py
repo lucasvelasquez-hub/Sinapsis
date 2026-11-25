@@ -37,3 +37,33 @@ def test_evaluate_scenario_esc04_vmd_first_responder(client: TestClient) -> None
     body = resp.json()
     assert body["scenario"]["id_escenario"] == "ESC-04"
     assert len(body["results"]) >= 1
+
+
+def test_kpis_separate_observed_and_simulated(client: TestClient) -> None:
+    body = client.get("/api/v1/benchmarks/kpis").json()
+    kpis = {k["id_kpi"]: k for k in body["kpis"]}
+    assert len(kpis) == 12
+    assert len(body["linea_base"]) == 5
+
+    assert kpis["KPI-01"]["valor_actual_db"] is not None
+    assert kpis["KPI-01"]["valor_simulado"] is not None
+    assert kpis["KPI-01"]["procedencia_simulado"] == "SIMULADO"
+    assert kpis["KPI-03"]["procedencia_simulado"] == "SIMULADO"
+
+    # KPI-04 mide un reloj humano: solo observado.
+    assert kpis["KPI-04"]["valor_actual_db"] is not None
+    assert kpis["KPI-04"]["valor_simulado"] is None
+    assert kpis["KPI-04"]["procedencia_simulado"] is None
+
+    # KPI-05, 06, 09, 11, 12: solo observados, sobre servicios no sintéticos.
+    for kpi_id in ("KPI-05", "KPI-06", "KPI-09", "KPI-11", "KPI-12"):
+        assert kpis[kpi_id]["valor_actual_db"] is not None, kpi_id
+        assert kpis[kpi_id]["valor_simulado"] is None, kpi_id
+
+    for kpi_id in ("KPI-07", "KPI-08"):
+        assert "sugerido" in kpis[kpi_id]["valor_simulado"], kpi_id
+        assert "referencia" in kpis[kpi_id]["valor_simulado"], kpi_id
+        assert kpis[kpi_id]["procedencia_simulado"] == "SIMULADO"
+
+    assert "%" in kpis["KPI-10"]["valor_simulado"]
+    assert kpis["KPI-10"]["procedencia_simulado"] == "SIMULADO"

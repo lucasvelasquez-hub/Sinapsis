@@ -52,6 +52,11 @@ export interface RequestDetail extends RequestSummary {
   context: RequestContext;
 }
 
+export interface ReclassifyOut extends RequestDetail {
+  release_recommended: boolean;
+  motivo: string | null;
+}
+
 export interface UnitStatus {
   unit_id: string;
   unit_type: string;
@@ -71,6 +76,8 @@ export interface UnitStatus {
   workload_4h: number;
   workload_8h: number;
   workload_12h: number;
+  diversion_of_service_id?: string | null;
+  rule_factors?: string[];
 }
 
 export type ExclusionCode =
@@ -121,6 +128,7 @@ export interface RecommendationCandidate {
   simulated_available: boolean;
   factors: string[];
   warnings: string[];
+  diversion_of_service_id?: string | null;
 }
 
 export interface RecommendationOut {
@@ -220,6 +228,8 @@ export interface KpiDefinition {
   meta_referencia: string;
   linea_base_ficticia: string;
   valor_actual_db: string | null;
+  valor_simulado?: string | null;
+  procedencia_simulado?: "SIMULADO" | "OBSERVADO" | null;
 }
 
 export interface BaselineByClassification {
@@ -262,6 +272,7 @@ export interface ScenarioRequestEval {
   recommended_unit_id: string | null;
   recommended_unit_type: string | null;
   recommended_score: number | null;
+  distance_km?: number | null;
   estimated_travel_min: number | null;
   estimated_cost: number | null;
   recommended_role: string | null;
@@ -272,6 +283,8 @@ export interface ScenarioRequestEval {
   reference_unit_type: string | null;
   reference_role: string | null;
   reference_eta_min: number | null;
+  reference_distance_km?: number | null;
+  reference_estimated_cost?: number | null;
   reference_justification: string | null;
   matches_reference_unit: boolean;
   matches_reference_type: boolean;
@@ -282,6 +295,7 @@ export interface ScenarioEvaluation {
   results: ScenarioRequestEval[];
   unit_match_rate: number;
   type_match_rate: number;
+  events_applied?: number;
 }
 
 export interface SimZone {

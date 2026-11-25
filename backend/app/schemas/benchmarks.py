@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel
 
 
@@ -9,6 +11,8 @@ class KpiDefinitionOut(BaseModel):
     meta_referencia: str
     linea_base_ficticia: str
     valor_actual_db: str | None = None
+    valor_simulado: str | None = None
+    procedencia_simulado: Literal["SIMULADO", "OBSERVADO"] | None = None
 
 
 class BaselineByClassificationOut(BaseModel):
@@ -62,6 +66,8 @@ class ScenarioRequestEvalOut(BaseModel):
     reference_unit_type: str | None
     reference_role: str | None
     reference_eta_min: float | None
+    reference_distance_km: float | None = None
+    reference_estimated_cost: float | None = None
     reference_justification: str | None
     matches_reference_unit: bool
     matches_reference_type: bool
@@ -72,3 +78,4 @@ class ScenarioEvaluationOut(BaseModel):
     results: list[ScenarioRequestEvalOut]
     unit_match_rate: float
     type_match_rate: float
+    events_applied: int = 0

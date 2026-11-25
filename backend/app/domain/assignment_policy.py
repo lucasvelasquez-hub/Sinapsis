@@ -1,0 +1,261 @@
+"""Orden de asignación del documento 03. Sin SQL y sin HTTP.
+
+El primer criterio que distingue, gana. La zona no entra en esta comparación.
+"""
+
+from dataclasses import dataclass, replace
+
+ARRIVAL_BAND_MIN = 3.0
+VMD_ADVANTAGE_MIN = 12.0
+COVERAGE_MAX_MIN = 20.0
+D07_NEAR_MIN = 15.0
+R02_ASSIGN_MAX_MIN = 2.0
+
+URGENCY_RANK: dict[str, int] = {"01": 0, "02": 1, "07": 2, "03": 3, "06": 4}
+
+VITAL = frozenset({"01", "02"})
+GREEN = frozenset({"07", "03", "06"})
+AMBULANCE_TYPES = frozenset({"TAM", "TAB"})
+
+WARN_D03 = "Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min"
+WARN_D05 = "Regla D05: hay TAB disponible; reservar TAM para emergencias 01"
+WARN_D06 = "Regla D06: 07 con posible traslado; TAB dentro de la meta"
+WARN_R01 = "Regla R01: reservada para un servicio más prioritario"
+
+TRANSFER_MOTIVOS = frozenset({"Caídas", "Heridas"})
+TRANSFER_DISCRIMINADOR = "Signos de deshidratación"
+
+
+@dataclass(frozen=True)
+class PolicyUnit:
+    unit_id: str
+    unit_type: str
+    arrival_min: float
+    cost: float
+    workload: float
+    leaves_alta_uncovered: bool
+    diverted_from_service_id: str | None
+
+
+@dataclass(frozen=True)
+class RankedUnit:
+    unit: PolicyUnit
+    tier: int
+    role: str
+    paired_unit_id: str | None
+    factors: list[str]
+    warnings: list[str]
+
+
+DESVIO_PREFIX = "DESVIO:"
+
+
+def r06_factor(unit_id: str, service_id: str) -> str:
+    return f"Regla R06: desvía {unit_id} del servicio {service_id}; ese servicio vuelve a la cola"
+
+
+def r02_wait_warning(urgency: str, waited_min: float | None) -> str | None:
+    """Aviso si un 01 o 02 lleva más de 2 min desde el despacho. Nulo no avisa."""
+    if urgency not in VITAL or waited_min is None or waited_min <= R02_ASSIGN_MAX_MIN:
+        return None
+    return f"Regla R02: lleva {waited_min:.1f} min en despacho (meta 2)"
+
+
+def reserve_for_higher(
+    urgency: str, units: list[RankedUnit], reserved_ids: set[str]
+) -> list[RankedUnit]:
+    """Hunde las móviles reservadas. No las quita de la lista."""
+    if urgency not in URGENCY_RANK or not reserved_ids:
+        return list(units)
+    front = [item for item in units if item.unit.unit_id not in reserved_ids]
+    back: list[RankedUnit] = []
+    for item in units:
+        if item.unit.unit_id not in reserved_ids:
+            continue
+        warnings = list(item.warnings)
+        if WARN_R01 not in warnings:
+            warnings.append(WARN_R01)
+        back.append(replace(item, warnings=warnings))
+    return front + back
+
+
+def is_transfer_likely(motivo: str | None, discriminador: str | None) -> bool:
+    if motivo in TRANSFER_MOTIVOS:
+        return True
+    return discriminador == TRANSFER_DISCRIMINADOR
+
+
+def choose_paired_ambulance(
+    units: list[PolicyUnit], *, release_min: dict[str, float]
+) -> str | None:
+    """Ambulancia que minimiza liberación prevista + viaje."""
+    ambulances = [u for u in units if u.unit_type in AMBULANCE_TYPES]
+    if not ambulances:
+        return None
+    return min(
+        ambulances,
+        key=lambda u: (release_min.get(u.unit_id, 0.0) + u.arrival_min, u.unit_id),
+    ).unit_id
+
+
+def rank_units(
+    urgency: str,
+    target_min: float,
+    units: list[PolicyUnit],
+    *,
+    transfer_likely: bool,
+    release_min: dict[str, float] | None = None,
+    support_vmd: bool = False,
+) -> list[RankedUnit]:
+    """Ordena móviles. tier 0 puede ganar; tier 1 quedó hundida por D03."""
+    if not units:
+        return []
+    releases = release_min or {}
+
+    if urgency in VITAL:
+        ordered = _rank_vital(units, urgency)
+        demoted: set[str] = set()
+    else:
+        ordered, demoted = _rank_green(units, urgency, target_min, transfer_likely)
+
+    r04 = _r04_vmd(urgency, target_min, units, releases)
+    if r04 is not None:
+        ordered = [r04] + [u for u in ordered if u.unit_id != r04.unit_id]
+    r04_pair = choose_paired_ambulance(units, release_min=releases) if r04 is not None else None
+    d07_unit_id, d07_pair = _d07_pair(urgency, ordered, units, support_vmd, r04 is not None)
+
+    has_tab = any(u.unit_type == "TAB" for u in units)
+    d06_active = _d06_active(urgency, target_min, units, transfer_likely)
+    ranked: list[RankedUnit] = []
+    for unit in ordered:
+        warnings: list[str] = []
+        if unit.leaves_alta_uncovered:
+            warnings.append(WARN_D03)
+        if urgency == "02" and unit.unit_type == "TAM" and has_tab:
+            warnings.append(WARN_D05)
+        if d06_active and unit.unit_type == "TAB" and unit.arrival_min <= target_min:
+            warnings.append(WARN_D06)
+        factors = [f"Llegada estimada: {unit.arrival_min:.1f} min"]
+        role = "ATENCION"
+        paired: str | None = None
+        if r04 is not None and unit.unit_id == r04.unit_id:
+            role = "PRIMER_RESPONDIENTE_ESTABILIZACION"
+            paired = r04_pair
+            factors.append("Retención PREDICHO: liberación más viaje")
+        elif d07_unit_id == unit.unit_id:
+            paired = d07_pair
+            factors.append("Regla D07: VMD de apoyo")
+        ranked.append(
+            RankedUnit(
+                unit=unit,
+                tier=1 if unit.unit_id in demoted else 0,
+                role=role,
+                paired_unit_id=paired,
+                factors=factors,
+                warnings=warnings,
+            )
+        )
+    return ranked
+
+
+def _r04_vmd(
+    urgency: str,
+    target_min: float,
+    units: list[PolicyUnit],
+    releases: dict[str, float],
+) -> PolicyUnit | None:
+    if urgency not in VITAL:
+        return None
+    ambulances = [u for u in units if u.unit_type in AMBULANCE_TYPES]
+    if not ambulances:
+        return None
+    best = min(releases.get(u.unit_id, 0.0) + u.arrival_min for u in ambulances)
+    if best <= target_min:
+        return None
+    vmds = [u for u in units if u.unit_type == "VMD" and u.arrival_min <= best - VMD_ADVANTAGE_MIN]
+    if not vmds:
+        return None
+    return min(vmds, key=lambda u: (u.arrival_min, u.unit_id))
+
+
+def _d07_pair(
+    urgency: str,
+    ordered: list[PolicyUnit],
+    units: list[PolicyUnit],
+    support_vmd: bool,
+    r04_active: bool,
+) -> tuple[str | None, str | None]:
+    if r04_active or not support_vmd or urgency != "01" or not ordered:
+        return None, None
+    if ordered[0].unit_type != "TAB":
+        return None, None
+    near = [u for u in units if u.unit_type == "VMD" and u.arrival_min <= D07_NEAR_MIN]
+    if not near:
+        return None, None
+    chosen = min(near, key=lambda u: (u.arrival_min, u.unit_id))
+    return ordered[0].unit_id, chosen.unit_id
+
+
+def _rank_vital(units: list[PolicyUnit], urgency: str) -> list[PolicyUnit]:
+    ambulances = [u for u in units if u.unit_type in AMBULANCE_TYPES]
+    others = [u for u in units if u.unit_type not in AMBULANCE_TYPES]
+    return _band_sort(ambulances, urgency) + _band_sort(others, urgency)
+
+
+def _rank_green(
+    units: list[PolicyUnit],
+    urgency: str,
+    target_min: float,
+    transfer_likely: bool,
+) -> tuple[list[PolicyUnit], set[str]]:
+    meets = [u for u in units if u.arrival_min <= target_min]
+    misses = [u for u in units if u.arrival_min > target_min]
+    ordered_meets = _apply_d06(meets, urgency, target_min, transfer_likely)
+    alternative = any(u.arrival_min <= target_min and not u.leaves_alta_uncovered for u in units)
+    if not alternative:
+        return ordered_meets + _band_sort(misses, urgency), set()
+    front = [u for u in ordered_meets if not u.leaves_alta_uncovered]
+    back = [u for u in ordered_meets if u.leaves_alta_uncovered]
+    return front + back + _band_sort(misses, urgency), {u.unit_id for u in back}
+
+
+def _apply_d06(
+    meets: list[PolicyUnit],
+    urgency: str,
+    target_min: float,
+    transfer_likely: bool,
+) -> list[PolicyUnit]:
+    if not _d06_active(urgency, target_min, meets, transfer_likely):
+        return _band_sort(meets, urgency)
+    tabs = [u for u in meets if u.unit_type == "TAB"]
+    rest = [u for u in meets if u.unit_type != "TAB"]
+    return _band_sort(tabs, urgency) + _band_sort(rest, urgency)
+
+
+def _d06_active(
+    urgency: str,
+    target_min: float,
+    units: list[PolicyUnit],
+    transfer_likely: bool,
+) -> bool:
+    return (
+        urgency == "07"
+        and transfer_likely
+        and any(u.unit_type == "TAB" and u.arrival_min <= target_min for u in units)
+    )
+
+
+def _band_sort(units: list[PolicyUnit], urgency: str) -> list[PolicyUnit]:
+    if not units:
+        return []
+    best = min(u.arrival_min for u in units)
+    inside = [u for u in units if u.arrival_min < best + ARRIVAL_BAND_MIN]
+    outside = [u for u in units if u.arrival_min >= best + ARRIVAL_BAND_MIN]
+    inside.sort(key=lambda u: _inside_key(u, urgency))
+    outside.sort(key=lambda u: (u.arrival_min, u.unit_id))
+    return inside + outside
+
+
+def _inside_key(unit: PolicyUnit, urgency: str) -> tuple[float, int, float, float, str]:
+    tam_penalty = 1 if urgency == "02" and unit.unit_type == "TAM" else 0
+    return (unit.cost, tam_penalty, unit.workload, unit.arrival_min, unit.unit_id)

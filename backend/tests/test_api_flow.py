@@ -1,4 +1,9 @@
 from fastapi.testclient import TestClient
+from sqlalchemy import func, select
+from sqlalchemy.orm import Session
+
+from app.models.decision import DispatchDecision
+from app.models.raw import RawService
 
 
 def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
@@ -87,3 +92,85 @@ def test_full_dispatch_recommendation_decision_flow(client: TestClient) -> None:
     excluded_ids = {u["unit_id"]: u["reasons"] for u in elig_2["excluded_units"]}
     assert top["unit_id"] in excluded_ids
     assert any("BUSY_IN_SIMULATION" in r for r in excluded_ids[top["unit_id"]])
+
+
+def _simulate(client: TestClient, urgency: str, when: str) -> str:
+    resp = client.post(
+        "/api/v1/requests/simulate",
+        json={
+            "urgency_level": urgency,
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-01",
+            "request_datetime": when,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["service_id"]
+
+
+def test_reclassify_upgrades_queue_code(client: TestClient, db: Session) -> None:
+    service_id = _simulate(client, "03", "2026-05-03T10:00:00")
+    before = db.execute(select(func.count()).select_from(DispatchDecision)).scalar_one()
+    resp = client.post(
+        f"/api/v1/requests/{service_id}/reclassify",
+        json={
+            "urgency_level": "01",
+            "origen": "RECLASIFICACION_TELEFONICA",
+            "motivo_consulta": "Dolor torácico",
+            "discriminador": "Dolor opresivo",
+            "dispatcher_id": "desp-test",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body["urgency_level"] == "01"
+    assert body["status"] == "PENDING"
+    service = db.get(RawService, service_id)
+    assert service is not None
+    db.refresh(service)
+    assert service.status == "PENDING"
+    assert any(
+        isinstance(item, dict) and item.get("origen") == "RECLASIFICACION_TELEFONICA"
+        for item in (service.classifications_json or [])
+    )
+    after = db.execute(select(func.count()).select_from(DispatchDecision)).scalar_one()
+    assert after == before
+
+
+def test_reclassify_tam_on_03_recommends_release(client: TestClient, db: Session) -> None:
+    service_id = _simulate(client, "01", "2026-05-03T11:00:00")
+    rec = client.post("/api/v1/recommendations/evaluate", json={"service_id": service_id})
+    assert rec.status_code == 200, rec.text
+    top = rec.json()["candidates"][0]
+    fleet = client.get("/api/v1/fleet/units")
+    assert fleet.status_code == 200, fleet.text
+    tam_id = next(unit["unit_id"] for unit in fleet.json() if unit["unit_type"] == "TAM")
+    accepted = client.post(
+        "/api/v1/decisions",
+        json={
+            "service_id": service_id,
+            "recommendation_id": rec.json()["recommendation_id"],
+            "recommended_unit_id": top["unit_id"],
+            "assigned_unit_id": tam_id,
+            "accepted": True,
+            "dispatcher_id": "desp-test",
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    resp = client.post(
+        f"/api/v1/requests/{service_id}/reclassify",
+        json={
+            "urgency_level": "03",
+            "origen": "RECLASIFICACION_EN_SITIO",
+            "motivo_consulta": "Dolor torácico",
+            "discriminador": "Dolor leve",
+            "dispatcher_id": "desp-test",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["release_recommended"] is True
+    service = db.get(RawService, service_id)
+    assert service is not None
+    db.refresh(service)
+    assert service.assigned_unit_id == tam_id
+    assert service.status == "DISPATCHED"

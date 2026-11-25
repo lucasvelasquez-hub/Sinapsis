@@ -6,14 +6,26 @@ Incorporates EMI rules: compatibility ranks, travel matrix + traffic factor, ope
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
-from app.domain.enums import RecommendationStatus, UnitRole
+from app.domain.assignment_policy import (
+    DESVIO_PREFIX,
+    URGENCY_RANK,
+    VITAL,
+    PolicyUnit,
+    is_transfer_likely,
+    r02_wait_warning,
+    r06_factor,
+    rank_units,
+    reserve_for_higher,
+)
+from app.domain.enums import RecommendationStatus, ServiceStatus, UnitRole
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import utcnow
 from app.models.decision import Recommendation, RecommendationCandidate
@@ -43,6 +55,7 @@ from app.services.scoring_service import (
     normalize_min_max_0_100,
     normalize_workload_0_100,
 )
+from app.services.simulation_service import get_or_create_simulation_session
 
 TOP_N = 3
 ASSUMED_ON_SCENE_MIN = 35.0
@@ -115,18 +128,6 @@ class ScoredCandidate:
     compatibility_rank: int
     factors: list[str]
     warnings: list[str]
-    vital_priority_tier: int = 0
-    proximity_tier: int = 2
-
-    @property
-    def sort_key(self) -> tuple[int, int, float, int, float]:
-        return (
-            self.vital_priority_tier,
-            self.proximity_tier,
-            self.score,
-            self.compatibility_rank,
-            self.expected_response_min,
-        )
 
 
 def _effective_weights(
@@ -353,6 +354,10 @@ def score_candidates(
             dist_km = 5.0
             est_travel = None
             eff_time = ml_min
+        if unit.busy_until is not None:
+            hold = (unit.busy_until - service.request_datetime).total_seconds() / 60.0
+            if hold > 0:
+                eff_time = round(eff_time + hold, 2)
 
         has_dist = tr is not None or dist_km_opt is not None
         distances_km.append(round(dist_km, 2) if has_dist else None)
@@ -389,9 +394,6 @@ def score_candidates(
         weight_coverage,
         traffic_factor=traffic,
     )
-    has_adequate_tab = any(
-        u.unit_type == "TAB" and effective_times[i] <= target_min for i, u in enumerate(units)
-    )
     best_vmd_idx = min(
         (i for i, u in enumerate(units) if u.unit_type == "VMD"),
         key=lambda i: effective_times[i],
@@ -399,9 +401,7 @@ def score_candidates(
     )
     best_vmd_time = effective_times[best_vmd_idx] if best_vmd_idx is not None else float("inf")
     best_vmd_id = units[best_vmd_idx].unit_id if best_vmd_idx is not None else None
-    fastest_time = min(effective_times)
     d06_transfer = service.urgency_level == "07" and _d06_possible_transfer(service.service_type)
-
     scored: list[ScoredCandidate] = []
     for idx, (unit, (_, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
         zip(units, predictions, norm_time, norm_workload, norm_cost, norm_coverage, strict=True)
@@ -428,14 +428,12 @@ def score_candidates(
         else:
             est_label = est_type
 
-        is_r04_vmd = False
         if (
             service.urgency_level in ("01", "02")
             and unit.unit_type == "VMD"
             and best_amb_time > target_min
             and eff_time <= best_amb_time - VMD_ADVANTAGE_THRESHOLD_MIN
         ):
-            is_r04_vmd = True
             role = UnitRole.PRIMER_RESPONDIENTE_ESTABILIZACION.value
             paired_id = best_amb_id
             factors.append(
@@ -477,44 +475,12 @@ def score_candidates(
         else:
             factors.append(f"Carga reciente: {unit.workload_4h} servicios en 4h")
 
-        if unit.unit_id in risky_coverage_units:
-            warnings.append("Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min")
-        if service.urgency_level == "02" and unit.unit_type == "TAM" and has_adequate_tab:
-            warnings.append(
-                "Regla D05: hay TAB adecuada dentro del objetivo; reservar TAM para emergencias 01"
-            )
         if compat_rank >= 4:
             warnings.append(
                 f"Tipo {unit.unit_type} no recomendado para clasificación {service.urgency_level}"
             )
 
-        # Prioridad de rol/compatibilidad según reglas EMI (R03, R04, D05, tabla Sec. 4):
-        if vital_mode:
-            if unit.unit_type == "VMD" and not is_r04_vmd:
-                vital_tier = 1
-            elif service.urgency_level == "02" and unit.unit_type == "TAM" and has_adequate_tab:
-                vital_tier = 1  # Regla D05: no comprometer TAM si hay TAB adecuada <=20 min
-            else:
-                vital_tier = 0
-        else:
-            vital_tier = 1 if compat_rank >= 4 else 0
-
-        # Regla D01: proximidad real por posición actual y matriz O-D (sin corte por municipio).
-        same_zone = unit.current_zone_id == service.zone_id
-        prox_tier = _proximity_tier(same_zone, dist_km_val, est_travel)
-        if same_zone:
-            factors.insert(1, f"Regla D01: recurso local en la misma zona ({service.zone_id})")
-        elif prox_tier == 0:
-            factors.insert(
-                1,
-                f"Regla D01: recurso en zona aledaña ({unit.current_zone_id or unit.base_id})",
-            )
-        elif prox_tier == 2:
-            warnings.append("Unidad en zona lejana (>10 km / >22 min); evaluar solo como respaldo")
-
-        # Regla D02: preferir menor costo solo cuando la diferencia de llegada es < 3 min.
-        close_to_fastest = (eff_time - fastest_time) < D02_CLOSE_TIME_DIFF_MIN
-        d02_cost_weight = (0.05 if close_to_fastest else 0.0) if vital_mode else eff_wc
+        d02_cost_weight = 0.02 if vital_mode else eff_wc
 
         scored.append(
             ScoredCandidate(
@@ -543,11 +509,227 @@ def score_candidates(
                 compatibility_rank=compat_rank,
                 factors=factors,
                 warnings=warnings,
-                vital_priority_tier=vital_tier,
-                proximity_tier=prox_tier,
             )
         )
-    return sorted(scored, key=lambda c: c.sort_key)
+    return _order_by_policy(
+        scored,
+        service,
+        target_min,
+        risky_coverage_units,
+        reserved_ids=_reserved_unit_ids(db, service),
+        r02_warning=_pending_wait_warning(db, service),
+    )
+
+
+def retention_samples(db: Session) -> tuple[dict[str, list[float]], list[float]]:
+    """Minutos llegada al destino → liberación, por centro y en total (consulta única)."""
+    rows = db.execute(
+        select(RawService.destination_center, RawService.assigned_units_json).where(
+            RawService.assigned_units_json.is_not(None)
+        )
+    ).all()
+    by_center: dict[str, list[float]] = {}
+    all_mins: list[float] = []
+    for center, payload in rows:
+        if not isinstance(payload, list):
+            continue
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            start = entry.get("fecha_hora_llegada_destino")
+            end = entry.get("fecha_hora_liberacion")
+            if not start or not end:
+                continue
+            minutes = (
+                datetime.fromisoformat(str(end)) - datetime.fromisoformat(str(start))
+            ).total_seconds() / 60.0
+            if minutes < 0:
+                continue
+            all_mins.append(minutes)
+            if center:
+                by_center.setdefault(str(center), []).append(minutes)
+    return by_center, all_mins
+
+
+def retention_median_min(db: Session, center_name: str | None) -> tuple[float, str]:
+    """Mediana de llegada al destino → liberación, por centro. Menos de 5 usa la global."""
+    by_center, all_mins = retention_samples(db)
+    global_med = float(median(all_mins)) if all_mins else 50.0
+    sample = by_center.get(center_name or "", [])
+    if center_name and len(sample) >= 5:
+        return float(median(sample)), f"Retención PREDICHO: mediana histórica de {center_name}"
+    return global_med, "Retención PREDICHO: mediana global"
+
+
+def _outranks(other: RawService, current: RawService) -> bool:
+    other_rank = URGENCY_RANK.get(other.urgency_level, len(URGENCY_RANK))
+    current_rank = URGENCY_RANK.get(current.urgency_level, len(URGENCY_RANK))
+    if other_rank != current_rank:
+        return other_rank < current_rank
+    if other.request_datetime != current.request_datetime:
+        return other.request_datetime < current.request_datetime
+    return other.service_id < current.service_id
+
+
+def _on_time_ambulance_ids(db: Session, service: RawService) -> list[str] | None:
+    """Ambulancias dentro de la meta. None si falta una celda de matriz y no hay prueba."""
+    eligibility, _ranks = evaluate_eligibility(db, service, service.request_datetime)
+    ambulances = [
+        unit
+        for unit in eligibility.eligible_units
+        if unit.unit_type in AMBULANCE_TYPES and unit.current_zone_id
+    ]
+    if not ambulances:
+        return []
+    traffic = _traffic_factor(db, service.request_datetime)
+    travel = _travel_lookup(
+        db,
+        {unit.current_zone_id for unit in ambulances if unit.current_zone_id},
+        service.zone_id,
+    )
+    target_row = db.get(RawResponseTarget, service.urgency_level)
+    target_min = float(target_row.target_response_min) if target_row else 15.0
+    on_time: list[str] = []
+    for unit in ambulances:
+        row = travel.get(unit.current_zone_id or "")
+        if row is None:
+            return None
+        arrival = round(row[1] * traffic + 2.0, 2)
+        if arrival <= target_min:
+            on_time.append(unit.unit_id)
+    return on_time
+
+
+def _reserved_unit_ids(db: Session, service: RawService) -> set[str]:
+    """Única ambulancia a tiempo de cada 01/02 pendiente más prioritario."""
+    if service.status != ServiceStatus.PENDING:
+        return set()
+    others = (
+        db.execute(
+            select(RawService).where(
+                RawService.status == ServiceStatus.PENDING,
+                RawService.urgency_level.in_(tuple(VITAL)),
+                RawService.service_id != service.service_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    reserved: set[str] = set()
+    for other in others:
+        if not _outranks(other, service):
+            continue
+        on_time = _on_time_ambulance_ids(db, other)
+        if on_time is not None and len(on_time) == 1:
+            reserved.add(on_time[0])
+    return reserved
+
+
+def _pending_wait_warning(db: Session, service: RawService) -> str | None:
+    if service.status != ServiceStatus.PENDING or service.dispatch_datetime is None:
+        return None
+    now = get_or_create_simulation_session(db).current_sim_datetime
+    waited = (now - service.dispatch_datetime).total_seconds() / 60.0
+    return r02_wait_warning(service.urgency_level, waited)
+
+
+def _visible_top(ordered: list[ScoredCandidate]) -> list[ScoredCandidate]:
+    """Top 3, más las móviles hundidas por R01 para que el despachador pueda elegirlas."""
+    top = list(ordered[:TOP_N])
+    seen = {candidate.unit.unit_id for candidate in top}
+    for candidate in ordered[TOP_N:]:
+        if candidate.unit.unit_id in seen:
+            continue
+        if any(warning.startswith("Regla R01:") for warning in candidate.warnings) or any(
+            factor.startswith("Regla R06:") for factor in candidate.factors
+        ):
+            top.append(candidate)
+            seen.add(candidate.unit.unit_id)
+    return top
+
+
+def _order_by_policy(
+    scored: list[ScoredCandidate],
+    service: RawService,
+    target_min: float,
+    risky_coverage_units: set[str],
+    reserved_ids: set[str] | None = None,
+    r02_warning: str | None = None,
+) -> list[ScoredCandidate]:
+    """Orden de rank_units. La VMD marcada R04 queda delante hasta que la política emita el rol."""
+    if not scored:
+        return []
+    policy_units = [
+        PolicyUnit(
+            unit_id=c.unit.unit_id,
+            unit_type=c.unit.unit_type,
+            arrival_min=c.expected_response_min,
+            cost=float(c.estimated_cost or 0.0),
+            workload=compute_raw_workload_index(
+                c.unit.workload_4h, c.unit.workload_8h, c.unit.workload_12h
+            ),
+            leaves_alta_uncovered=c.unit.unit_id in risky_coverage_units,
+            diverted_from_service_id=c.unit.diversion_of_service_id,
+        )
+        for c in scored
+    ]
+    ranked = reserve_for_higher(
+        service.urgency_level,
+        rank_units(
+            service.urgency_level,
+            target_min,
+            policy_units,
+            transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+            support_vmd=service.urgency_level == "01",
+        ),
+        reserved_ids or set(),
+    )
+    by_id = {c.unit.unit_id: c for c in scored}
+    ordered: list[ScoredCandidate] = []
+    for item in ranked:
+        candidate = by_id[item.unit.unit_id]
+        for warning in item.warnings:
+            if warning not in candidate.warnings:
+                candidate.warnings.append(warning)
+        extra = [
+            factor
+            for factor in item.factors
+            if factor.startswith(("Regla", "Retención")) and factor not in candidate.factors
+        ]
+        role = item.role if item.role != UnitRole.ATENCION.value else candidate.recommended_role
+        paired = item.paired_unit_id or candidate.paired_unit_id
+        diversion = candidate.unit.diversion_of_service_id
+        if diversion:
+            text = r06_factor(candidate.unit.unit_id, diversion)
+            tag = f"{DESVIO_PREFIX}{diversion}"
+            extra.extend(item for item in (text, tag) if item not in candidate.factors)
+        if extra or role != candidate.recommended_role or paired != candidate.paired_unit_id:
+            candidate = replace(
+                candidate,
+                recommended_role=role,
+                paired_unit_id=paired,
+                factors=[*candidate.factors, *extra],
+            )
+            by_id[item.unit.unit_id] = candidate
+        ordered.append(candidate)
+    responders = [
+        c
+        for c in ordered
+        if c.recommended_role == UnitRole.PRIMER_RESPONDIENTE_ESTABILIZACION.value
+    ]
+    if responders:
+        rest = [c for c in ordered if c not in responders]
+        ordered = responders + rest
+    held = reserved_ids or set()
+    if held:
+        front = [c for c in ordered if c.unit.unit_id not in held]
+        back = [c for c in ordered if c.unit.unit_id in held]
+        ordered = front + back
+    if r02_warning:
+        for candidate in ordered:
+            if r02_warning not in candidate.warnings:
+                candidate.warnings.append(r02_warning)
+    return ordered
 
 
 def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
@@ -564,16 +746,18 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
         "coverage": cfg.weight_coverage,
     }
     eligibility, compat_ranks = evaluate_eligibility(db, service, service.request_datetime)
-    top = score_candidates(
-        db,
-        service,
-        eligibility,
-        compat_ranks,
-        cfg.weight_time,
-        cfg.weight_workload,
-        cfg.weight_cost,
-        cfg.weight_coverage,
-    )[:TOP_N]
+    top = _visible_top(
+        score_candidates(
+            db,
+            service,
+            eligibility,
+            compat_ranks,
+            cfg.weight_time,
+            cfg.weight_workload,
+            cfg.weight_cost,
+            cfg.weight_coverage,
+        )
+    )
     status = RecommendationStatus.GENERATED if top else RecommendationStatus.NO_ELIGIBLE_UNITS
 
     rec = Recommendation(
@@ -697,6 +881,14 @@ def _to_out(
             simulated_available=c.simulated_available,
             factors=c.factors_json or [],
             warnings=c.warnings_json or [],
+            diversion_of_service_id=next(
+                (
+                    factor.removeprefix(DESVIO_PREFIX)
+                    for factor in (c.factors_json or [])
+                    if isinstance(factor, str) and factor.startswith(DESVIO_PREFIX)
+                ),
+                None,
+            ),
         )
 
     return RecommendationOut(

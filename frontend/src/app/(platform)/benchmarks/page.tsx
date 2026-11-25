@@ -80,7 +80,10 @@ export default function BenchmarksPage() {
                   {evalMutation.data.scenario.objetivo_aprendizaje}
                 </p>
               </div>
-              <div className="flex gap-4 font-mono">
+              <div className="flex flex-wrap gap-4 font-mono">
+                <span className="text-slate-300">
+                  Eventos aplicados: {evalMutation.data.events_applied ?? 0}
+                </span>
                 <span className="text-cyan-300">
                   Coincidencia Tipo:{" "}
                   {(evalMutation.data.type_match_rate * 100).toFixed(0)}%
@@ -168,7 +171,8 @@ export default function BenchmarksPage() {
                 <th className="py-2 pr-3">Nombre</th>
                 <th className="py-2 pr-3">Meta</th>
                 <th className="py-2 pr-3">Línea Base Histórica</th>
-                <th className="py-2">Valor DB Actual</th>
+                <th className="py-2 pr-3">Valor DB Actual</th>
+                <th className="py-2">Valor Simulado (14 esc.)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
@@ -178,8 +182,16 @@ export default function BenchmarksPage() {
                   <td className="py-2 pr-3 text-slate-100">{k.nombre}</td>
                   <td className="py-2 pr-3 text-emerald-300">{k.meta_referencia}</td>
                   <td className="py-2 pr-3 text-slate-400">{k.linea_base_ficticia}</td>
-                  <td className="py-2 font-mono text-white">
+                  <td className="py-2 pr-3 font-mono text-white">
                     {k.valor_actual_db ?? "—"}
+                  </td>
+                  <td className="py-2 font-mono text-cyan-200">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span>{k.valor_simulado ?? "—"}</span>
+                      {k.procedencia_simulado && (
+                        <ProvenanceBadge type={k.procedencia_simulado} />
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}

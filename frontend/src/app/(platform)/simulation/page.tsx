@@ -98,6 +98,9 @@ export default function SimulationPage() {
   const [closureChoice, setClosureChoice] = useState<Record<string, { state: string; centerId: string }>>({});
   const [closingIds, setClosingIds] = useState<Record<string, boolean>>({});
   const [simNotice, setSimNotice] = useState<string | null>(null);
+  const [heldTransfers, setHeldTransfers] = useState<
+    Array<{ serviceId: string; unitId: string; destinationCenter: string | null }>
+  >([]);
 
   const [liveMap, setLiveMap] = useState<Record<string, LivePos>>({});
   const liveRef = useRef<Record<string, LivePos>>({});
@@ -424,6 +427,7 @@ export default function SimulationPage() {
       destination_center_id,
     }: {
       serviceId: string;
+      unitId?: string | null;
       closure_state: string;
       destination_center_id?: string | null;
     }) => {
@@ -431,10 +435,11 @@ export default function SimulationPage() {
       return coreApi.completeSimulationService(serviceId, { closure_state, destination_center_id });
     },
     onSuccess: (res, vars) => {
-      if (res.stretcher_retention_min && res.released_unit_id) {
+      const heldUnitId = vars.closure_state === "TRASLADADO" ? (res.released_unit_id ?? vars.unitId) : null;
+      if (heldUnitId) {
         const destCenter = careCenters.find((c) => c.center_id === vars.destination_center_id);
         if (destCenter) {
-          transferTargets.current[res.released_unit_id] = {
+          transferTargets.current[heldUnitId] = {
             centerId: destCenter.center_id,
             lat: destCenter.lat,
             lon: destCenter.lon,
@@ -442,8 +447,18 @@ export default function SimulationPage() {
           };
         }
         setSimNotice(
-          `Regla D08: ${res.released_unit_id} en traslado/retención de camilla (~${res.stretcher_retention_min} min) hacia ${res.destination_center ?? "clínica"}.`
+          `Regla D08: ${heldUnitId} en traslado/retención de camilla${res.stretcher_retention_min ? ` (~${res.stretcher_retention_min} min)` : ""} hacia ${res.destination_center ?? "clínica"}.`
         );
+        if (!res.released_unit_id) {
+          setHeldTransfers((prev) => [
+            ...prev.filter((h) => h.serviceId !== vars.serviceId),
+            {
+              serviceId: vars.serviceId,
+              unitId: heldUnitId,
+              destinationCenter: res.destination_center ?? null,
+            },
+          ]);
+        }
       }
       queryClient.setQueryData(["simulation-state"], (old: typeof stateQuery.data) => {
         if (!old) return old;
@@ -451,11 +466,11 @@ export default function SimulationPage() {
           ...old,
           active_requests: old.active_requests.filter((r) => r.service_id !== vars.serviceId),
           units: old.units.map((u) =>
-            u.unit_id === res.released_unit_id
-              ? res.stretcher_retention_min
-                ? { ...u, simulated_available: false, operational_state: "EN_TRASLADO" as const }
-                : { ...u, simulated_available: true, busy_until: null, operational_state: "RETORNANDO" as const }
-              : u
+            heldUnitId && u.unit_id === heldUnitId
+              ? { ...u, simulated_available: false, operational_state: "EN_TRASLADO" as const }
+              : res.released_unit_id && u.unit_id === res.released_unit_id
+                ? { ...u, simulated_available: true, busy_until: null, operational_state: "RETORNANDO" as const }
+                : u
           ),
         };
       });
@@ -504,6 +519,30 @@ export default function SimulationPage() {
     },
   });
 
+  const releaseMutation = useMutation({
+    mutationFn: (serviceId: string) => coreApi.releaseSimulationUnit(serviceId),
+    onSuccess: (res, serviceId) => {
+      setHeldTransfers((prev) => prev.filter((h) => h.serviceId !== serviceId));
+      if (res.released_unit_id) {
+        delete transferTargets.current[res.released_unit_id];
+      }
+      queryClient.setQueryData(["simulation-state"], (old: typeof stateQuery.data) => {
+        if (!old) return old;
+        return {
+          ...old,
+          units: old.units.map((u) =>
+            res.released_unit_id && u.unit_id === res.released_unit_id
+              ? { ...u, simulated_available: true, busy_until: null, operational_state: "RETORNANDO" as const }
+              : u
+          ),
+        };
+      });
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+    },
+  });
+
   const divertableEnRoute = useMemo(
     () =>
       activeRequests.filter(
@@ -519,7 +558,6 @@ export default function SimulationPage() {
   const simNowMs = stateQuery.data?.current_sim_datetime
     ? new Date(stateQuery.data.current_sim_datetime).getTime()
     : null;
-
   const selectedUnit: SimUnit | undefined = units.find((u) => u.unit_id === selectedUnitId);
   const selectedPos = selectedUnitId ? liveMap[selectedUnitId] : undefined;
   const basesById = useMemo(() => new Map(bases.map((b) => [b.base_id, b])), [bases]);
@@ -694,7 +732,9 @@ export default function SimulationPage() {
                 <span className="font-mono font-bold text-white">{selectedUnit.unit_id}</span>{" "}
                 <span className="text-slate-300">({selectedUnit.unit_type})</span> ·{" "}
                 <span className={`font-mono font-semibold ${OPERATIONAL_STATE_COLOR[selectedOpState]}`}>
-                  {selectedOpState}
+                  {heldTransfers.some((h) => h.unitId === selectedUnit.unit_id)
+                    ? `${selectedOpState} (en retención)`
+                    : selectedOpState}
                 </span>
               </div>
               <div className="font-mono text-slate-300">
@@ -725,6 +765,7 @@ export default function SimulationPage() {
                 evalMutation.error ||
                 dispatchMutation.error ||
                 completeMutation.error ||
+                releaseMutation.error ||
                 advanceMutation.error ||
                 reclassifyMutation.error ||
                 divertMutation.error
@@ -890,6 +931,7 @@ export default function SimulationPage() {
                             onClick={() =>
                               completeMutation.mutate({
                                 serviceId: r.service_id,
+                                unitId: r.assigned_unit_id,
                                 closure_state: cc.state,
                                 destination_center_id:
                                   cc.state === "TRASLADADO" ? cc.centerId : null,
@@ -929,6 +971,40 @@ export default function SimulationPage() {
               })}
             </div>
           </div>
+
+          {heldTransfers.length > 0 && (
+            <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+              <h3 className="mb-2 text-xs font-semibold text-amber-200">
+                Móviles en retención por traslado ({heldTransfers.length})
+              </h3>
+              <div className="space-y-2">
+                {heldTransfers.map((h) => (
+                  <div
+                    key={h.serviceId}
+                    className="flex items-center justify-between gap-2 rounded border border-amber-500/30 bg-slate-950/70 p-2 text-xs"
+                  >
+                    <div>
+                      <div className="font-mono font-bold text-amber-100">
+                        {h.unitId} · en retención
+                      </div>
+                      <div className="text-[11px] text-slate-300">
+                        {h.serviceId}
+                        {h.destinationCenter ? ` · ${h.destinationCenter}` : ""}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={releaseMutation.isPending}
+                      onClick={() => releaseMutation.mutate(h.serviceId)}
+                      className="shrink-0 rounded bg-amber-500 px-2.5 py-1 text-[11px] font-semibold text-slate-950 hover:bg-amber-400 disabled:opacity-50"
+                    >
+                      Reportar liberación
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Live Recommendation */}
           {activeRec && (

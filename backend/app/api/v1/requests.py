@@ -3,11 +3,18 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from app.core.database import DbSession
-from app.schemas.dispatch import RequestDetail, RequestSummary, SimulateRequestCreate
+from app.schemas.dispatch import (
+    ReclassifyIn,
+    ReclassifyOut,
+    RequestDetail,
+    RequestSummary,
+    SimulateRequestCreate,
+)
 from app.services.request_service import (
     create_synthetic_request,
     get_request_detail,
     list_requests,
+    reclassify_service,
 )
 
 router = APIRouter(prefix="/requests", tags=["requests"])
@@ -39,6 +46,11 @@ def get_requests(
 @router.post("/simulate", response_model=RequestDetail, status_code=201)
 def simulate_request(payload: SimulateRequestCreate, db: DbSession) -> RequestDetail:
     return create_synthetic_request(db, payload)
+
+
+@router.post("/{service_id}/reclassify", response_model=ReclassifyOut)
+def reclassify_request(service_id: str, payload: ReclassifyIn, db: DbSession) -> ReclassifyOut:
+    return reclassify_service(db, service_id, payload)
 
 
 @router.get("/{service_id}", response_model=RequestDetail)

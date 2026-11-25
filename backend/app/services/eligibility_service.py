@@ -10,7 +10,8 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.domain.enums import ExclusionCode
+from app.domain.assignment_policy import r06_factor
+from app.domain.enums import ExclusionCode, ServiceStatus
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import shift_covers_hour
 from app.models.core import SimulationSession
@@ -138,6 +139,50 @@ def _exclusions(
     return reasons
 
 
+def _en_route_diversions(
+    db: Session, sim_session: SimulationSession, urgency_level: str
+) -> dict[str, str]:
+    """Móvil EN_RUTA hacia un 03 o 06, desviable a un 01 o 02."""
+    if urgency_level not in ("01", "02"):
+        return {}
+    raw = sim_session.active_assignments_json or {}
+    candidates: dict[str, str] = {}
+    for unit_id, entries in raw.items():
+        if unit_id == "_positions":
+            continue
+        rows = [entries] if isinstance(entries, dict) else entries
+        if not isinstance(rows, list):
+            continue
+        for entry in rows:
+            if not isinstance(entry, dict) or entry.get("state") != "EN_RUTA":
+                continue
+            if entry.get("urgency_level") not in ("03", "06"):
+                continue
+            service_id = entry.get("service_id")
+            if isinstance(service_id, str):
+                candidates[str(unit_id)] = service_id
+    if not candidates:
+        return {}
+    origins = {
+        row.service_id: row
+        for row in db.execute(
+            select(RawService).where(RawService.service_id.in_(set(candidates.values())))
+        ).scalars()
+    }
+    valid: dict[str, str] = {}
+    for unit_id, service_id in candidates.items():
+        origin = origins.get(service_id)
+        if (
+            origin is not None
+            and origin.status == ServiceStatus.DISPATCHED
+            and origin.arrival_datetime is None
+            and origin.assigned_unit_id == unit_id
+            and origin.urgency_level in ("03", "06")
+        ):
+            valid[unit_id] = service_id
+    return valid
+
+
 def evaluate_eligibility(
     db: Session,
     service: RawService,
@@ -169,6 +214,7 @@ def evaluate_eligibility(
     workloads = get_units_workload_windows(db, unit_ids, ref_dt)
     current_zones = resolve_units_current_zone(db, units, bases, ref_dt, sim_session)
     live_positions = (sim_session.active_assignments_json or {}).get("_positions") or {}
+    diversions = _en_route_diversions(db, sim_session, service.urgency_level)
 
     dest_zone = zones.get(service.zone_id)
     patient_lat = (
@@ -188,6 +234,8 @@ def evaluate_eligibility(
     for unit in units:
         rule = rules.get(unit.unit_type)
         reasons = _exclusions(unit, rule, service.urgency_level, ref_dt, busy[unit.unit_id])
+        if unit.unit_id in diversions:
+            reasons = [item for item in reasons if item[0] != ExclusionCode.BUSY_IN_SIMULATION]
         if reasons:
             excluded_units.append(
                 ExclusionReason(
@@ -243,6 +291,12 @@ def evaluate_eligibility(
             workload_4h=w4,
             workload_8h=w8,
             workload_12h=w12,
+            diversion_of_service_id=diversions.get(unit.unit_id),
+            rule_factors=(
+                [r06_factor(unit.unit_id, diversions[unit.unit_id])]
+                if unit.unit_id in diversions
+                else []
+            ),
         )
         hard_eligible.append((unit_out, rule.compatibility_rank if rule else NO_RULE_RANK))
 
