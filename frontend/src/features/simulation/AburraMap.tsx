@@ -6,7 +6,12 @@ import { useEffect, useRef } from "react";
 
 import type { SimBase, SimCareCenter, SimRequest, SimUnit, SimZone } from "@/types/core";
 
-import { resolveUnitOperationalState } from "./movement";
+import {
+  evaluateZoneCoverageD03,
+  evaluateZoneSectorsD01,
+  type MapLayerMode,
+  resolveUnitOperationalState,
+} from "./movement";
 
 export interface LivePos {
   lat: number;
@@ -87,28 +92,96 @@ function renderUnitContent(
   el.innerHTML = `<div style="position:relative;width:${box}px;height:${box}px;display:flex;align-items:center;justify-content:center;pointer-events:auto;">${ping}<span class="${blinkClass}" style="position:relative;width:${size}px;height:${size}px;border-radius:9999px;background:${fillColor};border:${borderWidth}px ${dashed ? "dashed" : "solid"} ${borderColor};opacity:${opacity};box-shadow:0 0 6px rgba(15,23,42,0.85);"></span></div>`;
 }
 
-function buildZonesGeoJson(zones: SimZone[]): GeoJSON.FeatureCollection {
+function buildZonesGeoJson(
+  zones: SimZone[],
+  units: SimUnit[],
+  liveMap: Record<string, LivePos>,
+  layerMode: MapLayerMode,
+  trafficFactor: number
+): { zones: GeoJSON.FeatureCollection; sectorLinks: GeoJSON.FeatureCollection } {
+  if (layerMode === "coverage_d03") {
+    const cov = evaluateZoneCoverageD03(zones, units, liveMap, trafficFactor);
+    return {
+      zones: {
+        type: "FeatureCollection",
+        features: zones.map((z) => {
+          const c = cov.get(z.zone_id);
+          return {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [z.lon_centroid, z.lat_centroid] },
+            properties: {
+              zone_id: z.zone_id,
+              label: c?.label ?? z.zone_id,
+              color: c?.color ?? "#64748b",
+              fillOpacity: c?.fillOpacity ?? 0.16,
+            },
+          };
+        }),
+      },
+      sectorLinks: { type: "FeatureCollection", features: [] },
+    };
+  }
+
+  if (layerMode === "sectors_d01") {
+    const sectors = evaluateZoneSectorsD01(zones, units, liveMap, trafficFactor);
+    const linkFeatures: GeoJSON.Feature[] = [];
+    const zoneFeatures: GeoJSON.Feature[] = [];
+    for (const z of zones) {
+      const s = sectors.get(z.zone_id);
+      zoneFeatures.push({
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [z.lon_centroid, z.lat_centroid] },
+        properties: {
+          zone_id: z.zone_id,
+          label: s?.label ?? z.zone_id,
+          color: s?.color ?? "#475569",
+          fillOpacity: 0.24,
+        },
+      });
+      if (s?.unitLat != null && s?.unitLon != null) {
+        linkFeatures.push({
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: [
+              [z.lon_centroid, z.lat_centroid],
+              [s.unitLon, s.unitLat],
+            ],
+          },
+          properties: { color: s.color },
+        });
+      }
+    }
+    return {
+      zones: { type: "FeatureCollection", features: zoneFeatures },
+      sectorLinks: { type: "FeatureCollection", features: linkFeatures },
+    };
+  }
+
   return {
-    type: "FeatureCollection",
-    features: zones.map((z) => ({
-      type: "Feature",
-      geometry: {
-        type: "Point",
-        coordinates: [z.lon_centroid, z.lat_centroid],
-      },
-      properties: {
-        zone_id: z.zone_id,
-        label: `${z.zone_id} · ${z.comuna} (${z.municipality}) · Demanda ${z.relative_demand}`,
-        demand: z.relative_demand,
-        color:
-          z.relative_demand === "ALTA"
-            ? "#f43f5e"
-            : z.relative_demand === "MEDIA"
-            ? "#38bdf8"
-            : "#64748b",
-        fillOpacity: z.relative_demand === "ALTA" ? 0.18 : 0.09,
-      },
-    })),
+    zones: {
+      type: "FeatureCollection",
+      features: zones.map((z) => ({
+        type: "Feature",
+        geometry: {
+          type: "Point",
+          coordinates: [z.lon_centroid, z.lat_centroid],
+        },
+        properties: {
+          zone_id: z.zone_id,
+          label: `${z.zone_id} · ${z.comuna} (${z.municipality}) · Demanda ${z.relative_demand}`,
+          demand: z.relative_demand,
+          color:
+            z.relative_demand === "ALTA"
+              ? "#f43f5e"
+              : z.relative_demand === "MEDIA"
+              ? "#38bdf8"
+              : "#64748b",
+          fillOpacity: z.relative_demand === "ALTA" ? 0.18 : 0.09,
+        },
+      })),
+    },
+    sectorLinks: { type: "FeatureCollection", features: [] },
   };
 }
 
@@ -148,6 +221,8 @@ export default function AburraMap({
   units,
   activeRequests,
   liveMap,
+  layerMode = "demand",
+  trafficFactor = 1.0,
   selectedUnitId,
   onSelectUnit,
 }: {
@@ -157,6 +232,8 @@ export default function AburraMap({
   units: SimUnit[];
   activeRequests: SimRequest[];
   liveMap: Record<string, LivePos>;
+  layerMode?: MapLayerMode;
+  trafficFactor?: number;
   selectedUnitId: string | null;
   onSelectUnit: (unitId: string) => void;
 }) {
@@ -171,10 +248,10 @@ export default function AburraMap({
   const unitMarkersRef = useRef<
     Map<string, { marker: maplibregl.Marker; el: HTMLDivElement; styleKey: string; tooltip: string }>
   >(new Map());
-  const latestDataRef = useRef({ zones, activeRequests, liveMap });
+  const latestDataRef = useRef({ zones, units, activeRequests, liveMap, layerMode, trafficFactor });
   useEffect(() => {
-    latestDataRef.current = { zones, activeRequests, liveMap };
-  }, [zones, activeRequests, liveMap]);
+    latestDataRef.current = { zones, units, activeRequests, liveMap, layerMode, trafficFactor };
+  }, [zones, units, activeRequests, liveMap, layerMode, trafficFactor]);
 
   // Initialize MapLibre GL map once (bearing -90 rotates map 90° clockwise: North right, South left;
   // vector tiles keep all street and neighborhood labels upright automatically)
@@ -212,11 +289,34 @@ export default function AburraMap({
 
     map.on("load", () => {
       loadedRef.current = true;
-      const { zones: curZones, activeRequests: curReqs, liveMap: curLive } = latestDataRef.current;
+      const {
+        zones: curZones,
+        units: curUnits,
+        activeRequests: curReqs,
+        liveMap: curLive,
+        layerMode: curMode,
+        trafficFactor: curTraffic,
+      } = latestDataRef.current;
+      const initialGeo = buildZonesGeoJson(curZones, curUnits, curLive, curMode, curTraffic);
+
+      map.addSource("sector-links", {
+        type: "geojson",
+        data: initialGeo.sectorLinks,
+      });
+      map.addLayer({
+        id: "sector-links-line",
+        type: "line",
+        source: "sector-links",
+        paint: {
+          "line-color": ["get", "color"],
+          "line-width": 1.2,
+          "line-opacity": 0.4,
+        },
+      });
 
       map.addSource("zones", {
         type: "geojson",
-        data: buildZonesGeoJson(curZones),
+        data: initialGeo.zones,
       });
       map.addLayer({
         id: "zones-circle",
@@ -279,15 +379,21 @@ export default function AburraMap({
     };
   }, []);
 
-  // Update zones GeoJSON & static markers (bases as diamonds, clinics as crosses)
+  // Update dynamic zone overlay (Demanda / Cobertura D03 / Sectores D01)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !loadedRef.current) return;
+    const geo = buildZonesGeoJson(zones, units, liveMap, layerMode, trafficFactor);
+    const zSrc = map.getSource("zones") as maplibregl.GeoJSONSource | undefined;
+    zSrc?.setData(geo.zones);
+    const lSrc = map.getSource("sector-links") as maplibregl.GeoJSONSource | undefined;
+    lSrc?.setData(geo.sectorLinks);
+  }, [zones, units, liveMap, layerMode, trafficFactor]);
+
+  // Update static markers (bases as diamonds, clinics as crosses)
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
-
-    if (loadedRef.current) {
-      const src = map.getSource("zones") as maplibregl.GeoJSONSource | undefined;
-      src?.setData(buildZonesGeoJson(zones));
-    }
 
     for (const m of staticMarkersRef.current) m.remove();
     staticMarkersRef.current = [];
@@ -329,7 +435,7 @@ export default function AburraMap({
         .addTo(map);
       staticMarkersRef.current.push(marker);
     }
-  }, [zones, bases, careCenters]);
+  }, [bases, careCenters]);
 
   // Update active request markers & dispatched route polylines
   useEffect(() => {

@@ -5,6 +5,8 @@ import {
   BASE_SPEED_KMH,
   computeEffectiveSpeedKmh,
   computeStepKm,
+  evaluateZoneCoverageD03,
+  evaluateZoneSectorsD01,
   haversineKm,
   resolveUnitOperationalState,
 } from "../movement";
@@ -95,5 +97,54 @@ describe("simulation movement physics", () => {
     expect(
       resolveUnitOperationalState({ ...unit, active: false }, [], bases)
     ).toBe("FUERA_SERVICIO");
+  });
+
+  it("evaluates D03 ambulance coverage and D01 dynamic sectors per zone", () => {
+    const zones = [
+      {
+        zone_id: "Z-MED-14-01",
+        municipality: "Medellín",
+        comuna: "El Poblado",
+        lat_centroid: 6.21,
+        lon_centroid: -75.57,
+        relative_demand: "ALTA",
+      },
+      {
+        zone_id: "Z-BAR-01",
+        municipality: "Barbosa",
+        comuna: "Barbosa",
+        lat_centroid: 6.44,
+        lon_centroid: -75.33,
+        relative_demand: "BAJA",
+      },
+    ];
+    const units = [
+      {
+        unit_id: "MOV-001",
+        unit_type: "TAM",
+        active: true,
+        simulated_available: true,
+        lat: 6.215,
+        lon: -75.572,
+      },
+      {
+        unit_id: "MOV-003",
+        unit_type: "VMD",
+        active: true,
+        simulated_available: true,
+        lat: 6.212,
+        lon: -75.571,
+      },
+    ];
+
+    const cov = evaluateZoneCoverageD03(zones, units, {}, 1.0);
+    // El Poblado (ALTA) tiene solo 1 ambulancia (MOV-001) en <=20 min -> RISK_D03
+    expect(cov.get("Z-MED-14-01")?.status).toBe("RISK_D03");
+    // Barbosa (lejos) tiene 0 ambulancias en <=20 min -> GAP_R04
+    expect(cov.get("Z-BAR-01")?.status).toBe("GAP_R04");
+
+    const sectors = evaluateZoneSectorsD01(zones, units, {}, 1.0);
+    // VMD MOV-003 está más cerca de Z-MED-14-01 que TAM MOV-001
+    expect(sectors.get("Z-MED-14-01")?.nearestUnitId).toBe("MOV-003");
   });
 });

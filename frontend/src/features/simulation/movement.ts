@@ -1,9 +1,13 @@
-import type { SimBase, SimRequest, SimUnit, UnitOperationalState } from "@/types/core";
+import type { SimBase, SimRequest, SimUnit, SimZone, UnitOperationalState } from "@/types/core";
 
 export const BASE_SPEED_KMH = 50;
 export const SIM_TICK_MS = 500;
+export const ROAD_CIRCUITY_FACTOR = 1.25;
+export const D03_COVERAGE_MAX_MIN = 20;
 const MIN_TRAFFIC_FACTOR = 0.75;
 const EARTH_RADIUS_KM = 6371;
+
+export type MapLayerMode = "demand" | "coverage_d03" | "sectors_d01";
 
 export function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const p1 = (lat1 * Math.PI) / 180;
@@ -139,3 +143,190 @@ export const OPERATIONAL_STATE_COLOR: Record<UnitOperationalState, string> = {
   EN_TRASLADO: "text-violet-300",
   FUERA_SERVICIO: "text-slate-400",
 };
+
+export interface ZoneCoverageD03 {
+  zoneId: string;
+  status: "COVERED" | "RISK_D03" | "SINGLE_AMB" | "GAP_R04";
+  ambulancesIn20m: number;
+  bestAmbMin: number | null;
+  bestAmbId: string | null;
+  color: string;
+  fillOpacity: number;
+  label: string;
+}
+
+/**
+ * Evaluates live ambulance coverage (TAM/TAB <= 20 min) per zone per EMI Rule D03 & R04,
+ * factoring in live mobile positions and current traffic_factor.
+ */
+export function evaluateZoneCoverageD03(
+  zones: ReadonlyArray<SimZone>,
+  units: ReadonlyArray<Pick<SimUnit, "unit_id" | "unit_type" | "active" | "simulated_available" | "lat" | "lon">>,
+  livePositions: Readonly<Record<string, { lat: number; lon: number }>>,
+  trafficFactor: number
+): Map<string, ZoneCoverageD03> {
+  const speedKmh = computeEffectiveSpeedKmh(trafficFactor);
+  const availableAmbs = units.filter(
+    (u) => u.active && u.simulated_available && (u.unit_type === "TAM" || u.unit_type === "TAB")
+  );
+  const result = new Map<string, ZoneCoverageD03>();
+
+  for (const z of zones) {
+    let count20 = 0;
+    let bestMin = Infinity;
+    let bestId: string | null = null;
+
+    for (const amb of availableAmbs) {
+      const pos = livePositions[amb.unit_id];
+      const lat = pos?.lat ?? amb.lat;
+      const lon = pos?.lon ?? amb.lon;
+      const roadKm = haversineKm(lat, lon, z.lat_centroid, z.lon_centroid) * ROAD_CIRCUITY_FACTOR;
+      const etaMin = (roadKm / speedKmh) * 60 + 2.0;
+      if (etaMin <= D03_COVERAGE_MAX_MIN) count20 += 1;
+      if (etaMin < bestMin) {
+        bestMin = etaMin;
+        bestId = amb.unit_id;
+      }
+    }
+
+    const bestRounded = Number.isFinite(bestMin) ? Number(bestMin.toFixed(1)) : null;
+    let status: ZoneCoverageD03["status"];
+    let color: string;
+    let fillOpacity: number;
+    let statusText: string;
+
+    if (count20 === 0) {
+      status = "GAP_R04";
+      color = "#ef4444";
+      fillOpacity = 0.32;
+      statusText = "BRECHA R04 (0 amb. ≤20m)";
+    } else if (count20 === 1 && z.relative_demand === "ALTA") {
+      status = "RISK_D03";
+      color = "#f59e0b";
+      fillOpacity = 0.30;
+      statusText = `RIESGO D03 (única amb. ${bestId} · ${bestRounded}m)`;
+    } else if (count20 === 1) {
+      status = "SINGLE_AMB";
+      color = "#eab308";
+      fillOpacity = 0.20;
+      statusText = `1 amb. ≤20m (${bestId} · ${bestRounded}m)`;
+    } else {
+      status = "COVERED";
+      color = "#10b981";
+      fillOpacity = 0.18;
+      statusText = `CUBIERTA (${count20} amb. ≤20m · mín ${bestRounded}m)`;
+    }
+
+    result.set(z.zone_id, {
+      zoneId: z.zone_id,
+      status,
+      ambulancesIn20m: count20,
+      bestAmbMin: bestRounded,
+      bestAmbId: bestId,
+      color,
+      fillOpacity,
+      label: `${z.zone_id} · ${z.comuna} · ${statusText}`,
+    });
+  }
+  return result;
+}
+
+const SECTOR_PALETTE = [
+  "#22d3ee",
+  "#a78bfa",
+  "#34d399",
+  "#fb923c",
+  "#f472b6",
+  "#facc15",
+  "#60a5fa",
+  "#4ade80",
+  "#c084fc",
+  "#fb7185",
+  "#2dd4bf",
+  "#38bdf8",
+];
+
+function unitSectorColor(unitId: string): string {
+  let hash = 0;
+  for (let i = 0; i < unitId.length; i += 1) {
+    hash = (hash * 31 + unitId.charCodeAt(i)) >>> 0;
+  }
+  return SECTOR_PALETTE[hash % SECTOR_PALETTE.length];
+}
+
+export interface ZoneSectorD01 {
+  zoneId: string;
+  nearestUnitId: string | null;
+  nearestUnitType: string | null;
+  unitLat: number | null;
+  unitLon: number | null;
+  distanceKm: number | null;
+  etaMin: number | null;
+  color: string;
+  label: string;
+}
+
+/**
+ * Dynamic Voronoi-like assignment (Rule D01): each zone belongs to the closest available mobile
+ * from its current live position, regardless of municipal boundaries.
+ */
+export function evaluateZoneSectorsD01(
+  zones: ReadonlyArray<SimZone>,
+  units: ReadonlyArray<Pick<SimUnit, "unit_id" | "unit_type" | "active" | "simulated_available" | "lat" | "lon">>,
+  livePositions: Readonly<Record<string, { lat: number; lon: number }>>,
+  trafficFactor: number
+): Map<string, ZoneSectorD01> {
+  const speedKmh = computeEffectiveSpeedKmh(trafficFactor);
+  const available = units.filter((u) => u.active && u.simulated_available);
+  const result = new Map<string, ZoneSectorD01>();
+
+  for (const z of zones) {
+    let bestUnit: (typeof available)[number] | null = null;
+    let bestKm = Infinity;
+    let bestLat: number | null = null;
+    let bestLon: number | null = null;
+
+    for (const u of available) {
+      const pos = livePositions[u.unit_id];
+      const lat = pos?.lat ?? u.lat;
+      const lon = pos?.lon ?? u.lon;
+      const km = haversineKm(lat, lon, z.lat_centroid, z.lon_centroid) * ROAD_CIRCUITY_FACTOR;
+      if (km < bestKm) {
+        bestKm = km;
+        bestUnit = u;
+        bestLat = lat;
+        bestLon = lon;
+      }
+    }
+
+    if (!bestUnit || !Number.isFinite(bestKm)) {
+      result.set(z.zone_id, {
+        zoneId: z.zone_id,
+        nearestUnitId: null,
+        nearestUnitType: null,
+        unitLat: null,
+        unitLon: null,
+        distanceKm: null,
+        etaMin: null,
+        color: "#475569",
+        label: `${z.zone_id} · ${z.comuna} · Sin móvil disponible`,
+      });
+      continue;
+    }
+
+    const distRounded = Number(bestKm.toFixed(1));
+    const etaRounded = Number(((bestKm / speedKmh) * 60 + 2.0).toFixed(1));
+    result.set(z.zone_id, {
+      zoneId: z.zone_id,
+      nearestUnitId: bestUnit.unit_id,
+      nearestUnitType: bestUnit.unit_type,
+      unitLat: bestLat,
+      unitLon: bestLon,
+      distanceKm: distRounded,
+      etaMin: etaRounded,
+      color: unitSectorColor(bestUnit.unit_id),
+      label: `${z.zone_id} · ${z.comuna} · Sector ${bestUnit.unit_id} (${bestUnit.unit_type} · ${distRounded} km · ~${etaRounded}m)`,
+    });
+  }
+  return result;
+}

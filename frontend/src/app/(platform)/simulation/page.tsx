@@ -24,6 +24,7 @@ import {
   computeEffectiveSpeedKmh,
   computeStepKm,
   haversineKm,
+  type MapLayerMode,
   OPERATIONAL_STATE_COLOR,
   resolveUnitOperationalState,
   SIM_TICK_MS,
@@ -88,6 +89,7 @@ export default function SimulationPage() {
 
   const [running, setRunning] = useState(true);
   const [speed, setSpeed] = useState<1 | 3>(1);
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("demand");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
   const [activeRec, setActiveRec] = useState<RecommendationOut | null>(null);
@@ -510,23 +512,59 @@ export default function SimulationPage() {
       <div className="grid grid-cols-12 gap-4">
         {/* Map Panel */}
         <div className="col-span-8 rounded-lg border border-slate-800 bg-slate-950 p-3">
-          <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
-            <div className="flex flex-wrap items-center gap-4">
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> TAM</span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-orange-400" /> TAB</span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" /> VMD</span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 ring-2 ring-cyan-400/50" /> En camino</span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 bg-violet-400" /> Base</span>
-              <span className="flex items-center gap-1">
-                <svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true">
-                  <path d="M6.5 1.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z" fill="#10b981" stroke="#a7f3d0" strokeWidth="1.4" />
-                </svg>
-                Clínica
-              </span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full ring-2 ring-amber-300" /> Paciente activo</span>
+          <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+            <div className="flex items-center gap-1 rounded-md border border-slate-800 bg-slate-900/80 p-0.5">
+              {(
+                [
+                  { id: "demand", label: "Demanda" },
+                  { id: "coverage_d03", label: "Cobertura D03" },
+                  { id: "sectors_d01", label: "Sectores D01" },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setLayerMode(tab.id)}
+                  className={
+                    layerMode === tab.id
+                      ? "rounded bg-cyan-500/20 px-2 py-0.5 font-semibold text-cyan-200 ring-1 ring-cyan-500/40"
+                      : "rounded px-2 py-0.5 text-slate-400 hover:text-slate-200"
+                  }
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              {layerMode === "coverage_d03" ? (
+                <>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-500/70 ring-1 ring-emerald-400" /> Cubierta (≥2 amb. ≤20m)</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-amber-500/70 ring-1 ring-amber-400" /> Riesgo D03 (1 amb.)</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500/70 ring-1 ring-red-400" /> Brecha R04 (0 amb.)</span>
+                </>
+              ) : layerMode === "sectors_d01" ? (
+                <span className="text-slate-300">
+                  División dinámica por móvil disponible más cercana (D01, sin cortes municipales)
+                </span>
+              ) : (
+                <>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> TAM</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-orange-400" /> TAB</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" /> VMD</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 ring-2 ring-cyan-400/50" /> En camino</span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 bg-violet-400" /> Base</span>
+                  <span className="flex items-center gap-1">
+                    <svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true">
+                      <path d="M6.5 1.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z" fill="#10b981" stroke="#a7f3d0" strokeWidth="1.4" />
+                    </svg>
+                    Clínica
+                  </span>
+                  <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full ring-2 ring-amber-300" /> Paciente</span>
+                </>
+              )}
             </div>
             <span className="font-mono text-slate-500">
-              {lastSync ? `Telemetría GPS: ${lastSync}` : "Sincronizando GPS..."}
+              {lastSync ? `GPS: ${lastSync}` : "Sincronizando GPS..."}
             </span>
           </div>
 
@@ -537,6 +575,8 @@ export default function SimulationPage() {
             units={units}
             activeRequests={activeRequests}
             liveMap={liveMap}
+            layerMode={layerMode}
+            trafficFactor={trafficFactor}
             selectedUnitId={selectedUnitId}
             onSelectUnit={setSelectedUnitId}
           />
