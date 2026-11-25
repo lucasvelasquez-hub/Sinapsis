@@ -49,3 +49,10 @@
     `core.simulation_sessions.active_assignments_json`).
   - A resolver al diseñarlo: la carga incremental pone `active = true` a todas las unidades del CSV y
     borraría un cambio manual; el cambio debe quedar en `core.audit_events` firmado por el despachador.
+- **Reentrenar modelo desde `/intelligence`** (pedido 2026-11-25, aplazado):
+  - Agregar endpoint (ej. `POST /api/v1/analytics/retrain`) y botón **"Reentrenar modelo"** en la pantalla
+    `/intelligence` para ejecutar `train_and_evaluate()`, recargar el artefacto en memoria en
+    `prediction_service` sin reiniciar `uvicorn`, actualizar `analytics.prediction_results` y registrar el
+    evento en `core.audit_events`.
+  - A definir al diseñarlo: si incluir o filtrar servicios `is_synthetic` y si reentrenar el modelo final
+    sobre el 100% de los datos tras la evaluación cronológica 70/15/15.
