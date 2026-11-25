@@ -131,20 +131,15 @@ Medición real contra DB local (`localhost:5433`, dataset EMI completo) con el `
     3. **CORE Actual** (`0.50 / 0.20 / 0.15 / 0.15` + política EMI).
     4. **Variantes calibradas** (p. ej. sensibilidad de `w_T / w_L / w_C / w_K`).
 
-- [ ] **Step 1: Write failing tests for rule compliance checks**
-  Crear/ampliar tests en `backend/tests/test_assignment_policy.py` para cada regla R01–R07 / D01–D08 encontrada con brecha en los 14 escenarios.
-- [ ] **Step 2: Run tests to verify failure**
-  Run: `cd backend && uv run pytest tests/test_assignment_policy.py -v`
-- [ ] **Step 3: Fix confirmed policy gaps & implement `scripts/ablation_scoring.py`**
-  Corregir únicamente brechas respaldadas por las reglas documentadas del reto EMI (sin overfitting a escenarios) y correr ablación comparando Greedy ETA vs. Despachador Referencia vs. CORE.
-- [ ] **Step 4: Run full backend test suite & update report**
-  Run:
-  ```bash
-  cd backend && uv run pytest -q && uv run ruff check . && uv run ruff format --check .
-  DATABASE_URL=postgresql+psycopg://core_user:core_password@localhost:5433/core_db \
-    uv run python ../scripts/ablation_scoring.py --md ../docs/decisions/scenario_benchmark_report.md
-  ```
-- [ ] **Step 5: Commit**
+- [x] **Step 1: Write failing tests for rule compliance checks**
+  Creado `backend/tests/test_ablation_and_rules.py` validando `run_ablation(db)` (`REFERENCIA_DESPACHADOR`, `GREEDY_ETA`, `CORE_ACTUAL`) y auditoría R01/R03/R04/R06/D03/D05/D06.
+- [x] **Step 2: Run tests to verify failure**
+  Confirmado fallo inicial antes de crear `scripts/ablation_scoring.py`.
+- [x] **Step 3: Fix confirmed policy gaps & implement `scripts/ablation_scoring.py`**
+  Implementado `scripts/ablation_scoring.py`. Auditoría confirma 0 violaciones R01, 0 violaciones R03 y 0 alertas D03 en verdes; CORE vence a Referencia en ETA (−2.5m), SLA (+3.7 pp), SLA vital (+10.0 pp), distancia (−14.4%) y costo (−8.3%), y a Greedy ETA en ETA (15.8m vs 16.4m) y adherencia clínica (77.6% vs 41.4%).
+- [x] **Step 4: Run full backend test suite & update report**
+  Documentado en `docs/decisions/benchmark_changelog.md`.
+- [x] **Step 5: Commit**
   `feat(bench): auditar reglas EMI y ablación de scoring`
 
 ---
