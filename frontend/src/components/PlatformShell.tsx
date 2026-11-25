@@ -156,7 +156,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         "ops-shell flex min-h-screen transition-colors",
-        highContrast ? "bg-[#e9eef5] text-slate-900" : "bg-[#050d18] text-slate-100"
+        highContrast ? "bg-[#dfe6f0] text-slate-900" : "bg-[#050d18] text-slate-100"
       )}
     >
       {/* Collapsible Left Navigation Rail */}
@@ -165,12 +165,12 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
         className={cn(
           "ops-sidebar flex shrink-0 flex-col border-r transition-all duration-200",
           highContrast
-            ? "border-slate-300 bg-white text-slate-900"
+            ? "border-[#c3cedd] bg-[#f1f5f9] text-slate-900"
             : "border-slate-800/90 bg-[#081322] text-slate-100",
           sidebarCollapsed ? "w-0 overflow-hidden border-r-0 opacity-0" : "w-56 opacity-100"
         )}
       >
-        <div className="border-b border-slate-800/90 px-4 py-3.5">
+        <div className="ops-sidebar-header flex h-14 shrink-0 items-center border-b border-slate-800/90 bg-[#081322] px-4 text-slate-100">
           <div className="flex items-center gap-2.5">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-br from-rose-600/30 to-sky-500/20 text-sky-300 ring-1 ring-sky-500/40">
               <Activity className="h-4 w-4" />
@@ -213,12 +213,21 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
           })}
         </nav>
 
-        <div className="border-t border-slate-800/90 p-3.5 text-xs text-slate-400">
+        <div
+          className={cn(
+            "border-t p-3.5 text-xs",
+            highContrast
+              ? "border-[#c3cedd] text-slate-600"
+              : "border-slate-800/90 text-slate-400"
+          )}
+        >
           <div className="mb-1 flex items-center justify-between">
             <span>Modo de Apoyo</span>
-            <span className="font-mono text-[10px] text-sky-400">IDSS</span>
+            <span className={cn("font-mono text-[10px]", highContrast ? "text-sky-700" : "text-sky-400")}>
+              IDSS
+            </span>
           </div>
-          <p className="text-[11px] leading-relaxed text-slate-500">
+          <p className={cn("text-[11px] leading-relaxed", highContrast ? "text-slate-600" : "text-slate-500")}>
             Decisión final siempre a cargo del despachador humano.
           </p>
         </div>
@@ -226,7 +235,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Area */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="ops-headbar flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-[#081322]/95 px-4 py-2 text-slate-100">
+        <header className="ops-headbar flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-[#081322] px-4 py-2 text-slate-100 lg:h-14 lg:flex-nowrap lg:py-0">
           {/* Left: Sidebar toggle + compact brand + Sim Clock */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             <button

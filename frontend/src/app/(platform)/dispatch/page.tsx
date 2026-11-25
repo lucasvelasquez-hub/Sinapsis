@@ -267,9 +267,9 @@ export default function DispatchCenterPage() {
     <div className="flex flex-col gap-2.5 lg:h-[calc(100vh-5.5rem)]">
       <LastDecisionBanner />
 
-      <div className="grid flex-1 grid-cols-1 gap-3.5 lg:min-h-0 lg:grid-cols-5">
-        {/* Column 1: Triage Queue (20%) */}
-        <div className="flex flex-col lg:col-span-1 lg:min-h-0">
+      <div className="grid flex-1 grid-cols-1 gap-3.5 lg:min-h-0 lg:grid-cols-[minmax(210px,16%)_minmax(0,1fr)_minmax(260px,20%)]">
+        {/* Column 1: Triage Queue (~16%) */}
+        <div className="flex flex-col lg:min-h-0">
           <RequestQueue
             requests={requestsQuery.data}
             isLoading={requestsQuery.isLoading}
@@ -277,8 +277,8 @@ export default function DispatchCenterPage() {
           />
         </div>
 
-        {/* Column 2: Ticket Card + Tactical View Tabs (60%, map always visible) */}
-        <section className="flex flex-col gap-3 lg:col-span-3 lg:min-h-0">
+        {/* Column 2: Ticket Card + Tactical View Tabs (~64%, map always visible) */}
+        <section className="flex flex-col gap-3 lg:min-h-0">
           <QueryErrorAlert queries={[detailQuery]} />
           <div className="shrink-0">
             {detail ? (
@@ -499,7 +499,7 @@ export default function DispatchCenterPage() {
         </section>
 
         {/* Column 3: CORE AI Recommendation + Audit Log (20%) */}
-        <section className="flex flex-col gap-3 lg:col-span-1 lg:min-h-0">
+        <section className="flex flex-col gap-3 lg:min-h-0">
           <div
             className={cn(
               "ops-panel flex flex-col overflow-hidden rounded-lg border bg-[#0a1626] lg:max-h-[64%]",

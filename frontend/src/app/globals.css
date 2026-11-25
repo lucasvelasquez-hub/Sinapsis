@@ -23,28 +23,34 @@
 
 :root[data-contrast="high"] {
   color-scheme: light;
-  --background: #e9eef5;
+  --background: #dfe6f0;
   --foreground: #0f172a;
-  --ops-bg: #e9eef5;
-  --ops-surface: #ffffff;
-  --ops-surface-elevated: #f8fafc;
-  --ops-border: #cbd5e1;
+  --ops-bg: #dfe6f0;
+  --ops-surface: #f1f5f9;
+  --ops-surface-elevated: #e8eef5;
+  --ops-border: #c3cedd;
   --ops-accent: #0284c7;
   --ops-critical: #e11d48;
   --scrollbar-thumb: #94a3b8;
-  --scrollbar-track: #e2e8f0;
+  --scrollbar-track: #d5dfec;
 }
 
 :root[data-contrast="high"] body,
 :root[data-contrast="high"] .ops-shell {
-  background-color: #e9eef5 !important;
+  background-color: #dfe6f0 !important;
   color: #0f172a;
 }
 
 :root[data-contrast="high"] .ops-sidebar {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+  border-color: #c3cedd !important;
   color: #0f172a !important;
+}
+
+:root[data-contrast="high"] .ops-sidebar-header {
+  background-color: #081322 !important;
+  border-color: rgba(30, 41, 59, 0.9) !important;
+  color: #f1f5f9 !important;
 }
 
 :root[data-contrast="high"] .ops-sidebar a {
@@ -52,22 +58,26 @@
 }
 
 :root[data-contrast="high"] .ops-sidebar a[class*="bg-sky-500"] {
-  background-color: #e0f2fe !important;
+  background-color: #dbeafe !important;
   color: #0369a1 !important;
 }
 
 :root[data-contrast="high"] main .ops-panel,
 :root[data-contrast="high"] main [class*="rounded-lg"][class*="border"][class*="bg-slate-900"],
 :root[data-contrast="high"] main [class*="rounded-lg"][class*="border"][class*="bg-slate-950"] {
-  background-color: #ffffff !important;
-  border-color: #cbd5e1 !important;
+  background-color: #f1f5f9 !important;
+  border-color: #c3cedd !important;
   color: #0f172a;
-  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
 }
 
 :root[data-contrast="high"] main :where([class*="bg-[#06101d]"], [class*="bg-[#071120]"], [class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-[#0a1626]"]):not(.ops-rec-header):not(.ops-panel) {
-  background-color: #f8fafc !important;
-  border-color: #cbd5e1 !important;
+  background-color: #e8eef5 !important;
+  border-color: #c3cedd !important;
+}
+
+:root[data-contrast="high"] .core-map-container {
+  background-color: #d1e1ff !important;
 }
 
 :root[data-contrast="high"] main .ops-rec-header {
@@ -116,13 +126,13 @@
 }
 
 :root[data-contrast="high"] main thead {
-  background-color: #ffffff !important;
+  background-color: #e8eef5 !important;
 }
 
 :root[data-contrast="high"] main input,
 :root[data-contrast="high"] main select {
-  background-color: #f8fafc !important;
-  border-color: #cbd5e1 !important;
+  background-color: #e8eef5 !important;
+  border-color: #c3cedd !important;
   color: #0f172a !important;
 }
 

@@ -364,8 +364,80 @@ export default function AburraMap({
     zonePopupRef.current = zonePopup;
     markerPopupRef.current = markerPopup;
 
-    const attachCustomLayers = () => {
+    const applyLightMapPalette = (lightMode: boolean) => {
+      if (!lightMode) return;
+      const layers = map.getStyle()?.layers ?? [];
+      for (const layer of layers) {
+        const id = layer.id.toLowerCase();
+        if (id === "routes-line" || id === "sector-links-line" || id === "zones-circle") {
+          continue;
+        }
+        try {
+          if (layer.type === "background") {
+            map.setPaintProperty(layer.id, "background-color", "#d1e1ff");
+          } else if (layer.type === "fill") {
+            if (id.includes("water")) {
+              map.setPaintProperty(layer.id, "fill-color", "#9fc2fa");
+            } else if (id.includes("building")) {
+              map.setPaintProperty(layer.id, "fill-color", "#bdd4fb");
+              map.setPaintProperty(layer.id, "fill-opacity", 0.6);
+            } else if (
+              id.includes("land") ||
+              id.includes("park") ||
+              id.includes("wood") ||
+              id.includes("grass") ||
+              id.includes("residential") ||
+              id.includes("industrial") ||
+              id.includes("commercial") ||
+              id.includes("cemetery") ||
+              id.includes("hospital")
+            ) {
+              map.setPaintProperty(layer.id, "fill-color", "#c5d9fd");
+              map.setPaintProperty(layer.id, "fill-opacity", 0.5);
+            }
+          } else if (layer.type === "line") {
+            if (id.includes("water")) {
+              map.setPaintProperty(layer.id, "line-color", "#9fc2fa");
+            } else if (
+              id.includes("road") ||
+              id.includes("street") ||
+              id.includes("highway") ||
+              id.includes("motorway") ||
+              id.includes("trunk") ||
+              id.includes("primary") ||
+              id.includes("secondary") ||
+              id.includes("tertiary") ||
+              id.includes("bridge") ||
+              id.includes("tunnel") ||
+              id.includes("transport") ||
+              id.includes("path") ||
+              id.includes("rail")
+            ) {
+              if (id.includes("casing") || id.includes("outline")) {
+                map.setPaintProperty(layer.id, "line-color", "#64748b");
+              } else if (
+                id.includes("motorway") ||
+                id.includes("trunk") ||
+                id.includes("primary") ||
+                id.includes("major")
+              ) {
+                map.setPaintProperty(layer.id, "line-color", "#1e293b");
+              } else if (id.includes("secondary") || id.includes("tertiary")) {
+                map.setPaintProperty(layer.id, "line-color", "#334155");
+              } else {
+                map.setPaintProperty(layer.id, "line-color", "#475569");
+              }
+            }
+          }
+        } catch {
+          // Ignore expression-only paint properties on specific third-party style layers
+        }
+      }
+    };
+
+    const attachCustomLayers = (lightMode: boolean) => {
       loadedRef.current = true;
+      applyLightMapPalette(lightMode);
       const {
         zones: curZones,
         bases: curBases,
@@ -445,7 +517,7 @@ export default function AburraMap({
     };
 
     map.on("load", () => {
-      attachCustomLayers();
+      attachCustomLayers(isLight);
 
       map.on("mousemove", "zones-circle", (e) => {
         if (hoveredMarkerRef.current) return;
@@ -469,7 +541,7 @@ export default function AburraMap({
       loadedRef.current = false;
       map.setStyle(nextLight ? LIGHT_VECTOR_STYLE : DARK_VECTOR_STYLE);
       map.once("style.load", () => {
-        attachCustomLayers();
+        attachCustomLayers(nextLight);
       });
     });
     contrastObserver.observe(document.documentElement, {
@@ -737,7 +809,7 @@ export default function AburraMap({
   return (
     <div
       ref={containerRef}
-      className={`${heightClass} w-full overflow-hidden rounded border border-slate-800/80 [&_.core-map-popup]:pointer-events-none [&_.core-map-popup]:z-50 [&_.core-map-popup_.maplibregl-popup-content]:!bg-transparent [&_.core-map-popup_.maplibregl-popup-content]:!p-0 [&_.core-map-popup_.maplibregl-popup-content]:!shadow-none [&_.core-map-popup_.maplibregl-popup-tip]:!hidden`}
+      className={`core-map-container ${heightClass} w-full overflow-hidden rounded border border-slate-800/80 [&_.core-map-popup]:pointer-events-none [&_.core-map-popup]:z-50 [&_.core-map-popup_.maplibregl-popup-content]:!bg-transparent [&_.core-map-popup_.maplibregl-popup-content]:!p-0 [&_.core-map-popup_.maplibregl-popup-content]:!shadow-none [&_.core-map-popup_.maplibregl-popup-tip]:!hidden`}
     />
   );
 }
