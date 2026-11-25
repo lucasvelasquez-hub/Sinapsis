@@ -153,12 +153,20 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const slaPct = overview ? Math.round(overview.sla_compliance_rate * 100) : null;
 
   return (
-    <div className="ops-shell flex min-h-screen bg-[#050d18] text-slate-100">
+    <div
+      className={cn(
+        "ops-shell flex min-h-screen transition-colors",
+        highContrast ? "bg-[#e9eef5] text-slate-900" : "bg-[#050d18] text-slate-100"
+      )}
+    >
       {/* Collapsible Left Navigation Rail */}
       <aside
         aria-label="Navegación principal"
         className={cn(
-          "ops-sidebar flex shrink-0 flex-col border-r border-slate-800/90 bg-[#081322] text-slate-100 transition-all duration-200",
+          "ops-sidebar flex shrink-0 flex-col border-r transition-all duration-200",
+          highContrast
+            ? "border-slate-300 bg-white text-slate-900"
+            : "border-slate-800/90 bg-[#081322] text-slate-100",
           sidebarCollapsed ? "w-0 overflow-hidden border-r-0 opacity-0" : "w-56 opacity-100"
         )}
       >

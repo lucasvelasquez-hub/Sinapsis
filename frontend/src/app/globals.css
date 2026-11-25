@@ -41,7 +41,24 @@
   color: #0f172a;
 }
 
-:root[data-contrast="high"] main .ops-panel {
+:root[data-contrast="high"] .ops-sidebar {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+:root[data-contrast="high"] .ops-sidebar a {
+  color: #334155 !important;
+}
+
+:root[data-contrast="high"] .ops-sidebar a[class*="bg-sky-500"] {
+  background-color: #e0f2fe !important;
+  color: #0369a1 !important;
+}
+
+:root[data-contrast="high"] main .ops-panel,
+:root[data-contrast="high"] main [class*="rounded-lg"][class*="border"][class*="bg-slate-900"],
+:root[data-contrast="high"] main [class*="rounded-lg"][class*="border"][class*="bg-slate-950"] {
   background-color: #ffffff !important;
   border-color: #cbd5e1 !important;
   color: #0f172a;
