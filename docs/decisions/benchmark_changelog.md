@@ -64,3 +64,12 @@ Registro acumulado paso a paso de la medición de CORE frente a `06_escenarios_r
   - Se preserva la frontera `OBSERVADO` vs. `SIMULADO` en `GET /api/v1/benchmarks/kpis`: los 6 KPIs determinados por el motor (`KPI-01`, `KPI-02`, `KPI-03`, `KPI-07`, `KPI-08`, `KPI-10`) muestran `SIMULADO`, mientras que los 6 KPIs de reloj humano / guion de evento (`KPI-04`, `KPI-05`, `KPI-06`, `KPI-09`, `KPI-11`, `KPI-12`) se mantienen estrictamente `OBSERVADO` sobre los 10.402 servicios históricos.
   - Nuevos tests de API en `backend/tests/test_benchmarks_api.py`.
 
+---
+
+## Iteración 5 — Task 5: Tablero Comparativo Interactivo en `/benchmarks`
+- **Fecha:** 2026-11-25
+- **Alcance:**
+  - Actualizados `frontend/src/types/core.ts`, `frontend/src/lib/api.ts` y `frontend/src/app/(platform)/benchmarks/page.tsx`.
+  - Nuevo botón **"Evaluar los 14 escenarios"** con scorecard ejecutivo de 6 KPIs (ETA CORE vs. Ref., SLA global y vital, Match tipo/móvil, distancia, costo y auditoría de reglas EMI R01/R03/R04/R06/D03), gráfica ECharts comparativa por escenario, tabla clickeable para inspeccionar solicitud por solicitud (incluyendo despacho dual `orden_movil == 2`, `Δ ETA` y filtro *Solo discrepancias*) y botones **Exportar JSON / CSV**.
+  - Test Vitest en `frontend/src/app/(platform)/benchmarks/__tests__/benchmarks.test.tsx`.
+
