@@ -82,6 +82,8 @@ class UnitStatusOut(BaseModel):
     workload_4h: int
     workload_8h: int
     workload_12h: int
+    diversion_of_service_id: str | None = None
+    rule_factors: list[str] = []
 
 
 class ExclusionReason(BaseModel):
@@ -131,6 +133,7 @@ class RecommendationCandidateOut(BaseModel):
     simulated_available: bool
     factors: list[str]
     warnings: list[str]
+    diversion_of_service_id: str | None = None
 
 
 class RecommendationOut(BaseModel):

@@ -164,6 +164,96 @@ def test_record_decision_stores_and_audits_dispatcher(
     assert event.payload_json["dispatcher_id"] == "desp-07"
 
 
+def test_r06_accept_is_atomic(client: TestClient, db: Session) -> None:
+    green = client.post(
+        "/api/v1/requests/simulate",
+        json={
+            "urgency_level": "06",
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-01",
+            "request_datetime": "2026-05-02T10:00:00",
+        },
+    )
+    assert green.status_code == 201, green.text
+    green_id = green.json()["service_id"]
+    green_rec = _evaluate(client, green_id)
+    unit_id = green_rec["candidates"][0]["unit_id"]
+    assert _accept_top(client, green_rec).status_code == 201
+
+    red_id = _new_request(client, "2026-05-02T10:05:00")
+    red_rec = _evaluate(client, red_id)
+    diverted = next(
+        c
+        for c in red_rec["candidates"]
+        if any(str(f).startswith("Regla R06:") and unit_id in str(f) for f in c["factors"])
+    )
+    accepted = client.post(
+        "/api/v1/decisions",
+        json={
+            "service_id": red_id,
+            "recommendation_id": red_rec["recommendation_id"],
+            "recommended_unit_id": diverted["unit_id"],
+            "assigned_unit_id": diverted["unit_id"],
+            "accepted": True,
+            "dispatcher_id": "desp-test",
+        },
+    )
+    assert accepted.status_code == 201, accepted.text
+    origin = db.get(RawService, green_id)
+    target = db.get(RawService, red_id)
+    db.refresh(origin)
+    db.refresh(target)
+    assert origin.status == "PENDING"
+    assert origin.assigned_unit_id is None
+    assert target.status == "DISPATCHED"
+    assert target.assigned_unit_id == unit_id
+
+    blocked_green = client.post(
+        "/api/v1/requests/simulate",
+        json={
+            "urgency_level": "06",
+            "service_type": "Dolor torácico",
+            "zone_id": "Z-MED-01-01",
+            "request_datetime": "2026-05-02T11:00:00",
+        },
+    )
+    assert blocked_green.status_code == 201, blocked_green.text
+    blocked_id = blocked_green.json()["service_id"]
+    blocked_rec = _evaluate(client, blocked_id)
+    blocked_unit = blocked_rec["candidates"][0]["unit_id"]
+    assert _accept_top(client, blocked_rec).status_code == 201
+
+    later_id = _new_request(client, "2026-05-02T11:05:00")
+    later_rec = _evaluate(client, later_id)
+    stale = next(
+        c
+        for c in later_rec["candidates"]
+        if any(str(f).startswith("Regla R06:") and blocked_unit in str(f) for f in c["factors"])
+    )
+    arrived = client.post(f"/api/v1/simulation/arrive/{blocked_id}")
+    assert arrived.status_code == 200, arrived.text
+    denied = client.post(
+        "/api/v1/decisions",
+        json={
+            "service_id": later_id,
+            "recommendation_id": later_rec["recommendation_id"],
+            "recommended_unit_id": later_rec["candidates"][0]["unit_id"],
+            "assigned_unit_id": stale["unit_id"],
+            "accepted": True,
+            "dispatcher_id": "desp-test",
+        },
+    )
+    assert denied.status_code == 409, denied.text
+    later = db.get(RawService, later_id)
+    still = db.get(RawService, blocked_id)
+    db.refresh(later)
+    db.refresh(still)
+    assert later.status == "PENDING"
+    assert later.assigned_unit_id is None
+    assert still.status == "DISPATCHED"
+    assert still.assigned_unit_id == blocked_unit
+
+
 def test_dispatch_does_not_write_simulated_values_into_raw(
     client: TestClient, db: Session, recommended: dict[str, Any]
 ) -> None:

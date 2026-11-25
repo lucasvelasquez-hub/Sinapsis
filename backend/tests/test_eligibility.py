@@ -1,5 +1,7 @@
 """Motivos de exclusión estructurados (explicabilidad)."""
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -7,7 +9,10 @@ from app.domain.enums import ExclusionCode
 from app.models.raw import RawService
 from app.schemas.dispatch import ExclusionReason
 from app.services.eligibility_service import evaluate_eligibility
-from app.services.simulation_service import mark_unit_assigned_in_simulation
+from app.services.simulation_service import (
+    mark_unit_assigned_in_simulation,
+    update_assignment_fields,
+)
 
 
 def test_every_exclusion_has_codes_aligned_with_reasons(db: Session) -> None:
@@ -108,3 +113,52 @@ def test_a_request_is_not_blocked_by_its_own_simulated_assignment(db: Session) -
     assert unit_id in {u.unit_id for u in own.eligible_units}
     busy = next(ex for ex in theirs.excluded_units if ex.unit_id == unit_id)
     assert ExclusionCode.BUSY_IN_SIMULATION in busy.reason_codes
+
+
+def _open(
+    db: Session, service_id: str, urgency: str, when: datetime, **extra: object
+) -> RawService:
+    row = RawService(
+        service_id=service_id,
+        request_datetime=when,
+        urgency_level=urgency,
+        service_type="Dolor torácico",
+        zone_id="Z-MED-01-01",
+        is_synthetic=True,
+        status=str(extra.pop("status", "PENDING")),
+    )
+    db.add(row)
+    db.flush()
+    return row
+
+
+def test_r06_excludes_unit_already_on_scene(db: Session) -> None:
+    when = datetime(2027, 2, 2, 12, 0)
+    origin = _open(db, "R06-SCENE", "03", when, status="DISPATCHED")
+    origin.arrival_datetime = when + timedelta(minutes=5)
+    probe = _open(db, "R06-PROBE-01", "01", when)
+    unit_id = evaluate_eligibility(db, probe, when)[0].eligible_units[0].unit_id
+    origin.assigned_unit_id = unit_id
+    mark_unit_assigned_in_simulation(db, unit_id, origin.service_id, when, 90, urgency_level="03")
+    update_assignment_fields(db, unit_id, origin.service_id, state="EN_ATENCION")
+    db.flush()
+
+    evaluation, _ = evaluate_eligibility(db, probe, when)
+
+    assert unit_id not in {unit.unit_id for unit in evaluation.eligible_units}
+
+
+def test_r06_offers_unit_en_route_to_06(db: Session) -> None:
+    when = datetime(2027, 2, 2, 15, 0)
+    origin = _open(db, "R06-ROUTE", "06", when, status="DISPATCHED")
+    probe = _open(db, "R06-PROBE-02", "01", when)
+    unit_id = evaluate_eligibility(db, probe, when)[0].eligible_units[0].unit_id
+    origin.assigned_unit_id = unit_id
+    mark_unit_assigned_in_simulation(db, unit_id, origin.service_id, when, 90, urgency_level="06")
+    db.flush()
+
+    evaluation, _ = evaluate_eligibility(db, probe, when)
+    offered = next(unit for unit in evaluation.eligible_units if unit.unit_id == unit_id)
+
+    assert offered.diversion_of_service_id == origin.service_id
+    assert any(factor.startswith("Regla R06:") for factor in getattr(offered, "rule_factors", []))

@@ -15,11 +15,13 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.domain.assignment_policy import (
+    DESVIO_PREFIX,
     URGENCY_RANK,
     VITAL,
     PolicyUnit,
     is_transfer_likely,
     r02_wait_warning,
+    r06_factor,
     rank_units,
     reserve_for_higher,
 )
@@ -523,7 +525,9 @@ def _visible_top(ordered: list[ScoredCandidate]) -> list[ScoredCandidate]:
     for candidate in ordered[TOP_N:]:
         if candidate.unit.unit_id in seen:
             continue
-        if any(warning.startswith("Regla R01:") for warning in candidate.warnings):
+        if any(warning.startswith("Regla R01:") for warning in candidate.warnings) or any(
+            factor.startswith("Regla R06:") for factor in candidate.factors
+        ):
             top.append(candidate)
             seen.add(candidate.unit.unit_id)
     return top
@@ -550,7 +554,7 @@ def _order_by_policy(
                 c.unit.workload_4h, c.unit.workload_8h, c.unit.workload_12h
             ),
             leaves_alta_uncovered=c.unit.unit_id in risky_coverage_units,
-            diverted_from_service_id=None,
+            diverted_from_service_id=c.unit.diversion_of_service_id,
         )
         for c in scored
     ]
@@ -579,6 +583,11 @@ def _order_by_policy(
         ]
         role = item.role if item.role != UnitRole.ATENCION.value else candidate.recommended_role
         paired = item.paired_unit_id or candidate.paired_unit_id
+        diversion = candidate.unit.diversion_of_service_id
+        if diversion:
+            text = r06_factor(candidate.unit.unit_id, diversion)
+            tag = f"{DESVIO_PREFIX}{diversion}"
+            extra.extend(item for item in (text, tag) if item not in candidate.factors)
         if extra or role != candidate.recommended_role or paired != candidate.paired_unit_id:
             candidate = replace(
                 candidate,
@@ -757,6 +766,14 @@ def _to_out(
             simulated_available=c.simulated_available,
             factors=c.factors_json or [],
             warnings=c.warnings_json or [],
+            diversion_of_service_id=next(
+                (
+                    factor.removeprefix(DESVIO_PREFIX)
+                    for factor in (c.factors_json or [])
+                    if isinstance(factor, str) and factor.startswith(DESVIO_PREFIX)
+                ),
+                None,
+            ),
         )
 
     return RecommendationOut(

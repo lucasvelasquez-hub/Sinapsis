@@ -47,6 +47,13 @@ class RankedUnit:
     warnings: list[str]
 
 
+DESVIO_PREFIX = "DESVIO:"
+
+
+def r06_factor(unit_id: str, service_id: str) -> str:
+    return f"Regla R06: desvía {unit_id} del servicio {service_id}; ese servicio vuelve a la cola"
+
+
 def r02_wait_warning(urgency: str, waited_min: float | None) -> str | None:
     """Aviso si un 01 o 02 lleva más de 2 min desde el despacho. Nulo no avisa."""
     if urgency not in VITAL or waited_min is None or waited_min <= R02_ASSIGN_MAX_MIN:
