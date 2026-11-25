@@ -69,8 +69,17 @@ class ScenarioRequestEvalOut(BaseModel):
     reference_distance_km: float | None = None
     reference_estimated_cost: float | None = None
     reference_justification: str | None
+    reference_paired_unit_id: str | None = None
+    reference_paired_unit_type: str | None = None
+    reference_paired_role: str | None = None
     matches_reference_unit: bool
     matches_reference_type: bool
+    matches_paired_unit: bool = False
+    matches_paired_type: bool = False
+    sla_target_min: int | None = None
+    sla_met_core: bool | None = None
+    sla_met_ref: bool | None = None
+    eta_delta_min: float | None = None
 
 
 class ScenarioEvaluationOut(BaseModel):
@@ -78,4 +87,10 @@ class ScenarioEvaluationOut(BaseModel):
     results: list[ScenarioRequestEvalOut]
     unit_match_rate: float
     type_match_rate: float
+    paired_match_rate: float | None = None
+    avg_eta_core_min: float | None = None
+    avg_eta_ref_min: float | None = None
+    eta_delta_min: float | None = None
+    sla_core_pct: float | None = None
+    sla_ref_pct: float | None = None
     events_applied: int = 0

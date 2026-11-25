@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.domain.assignment_policy import r06_factor
-from app.models.raw import RawService, RawServiceRule, RawUnit
+from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit
 from app.schemas.benchmarks import (
     ScenarioEvaluationOut,
     ScenarioRequestEvalOut,
@@ -24,6 +24,8 @@ from app.services.scoring_service import get_scoring_config
 FREE_STATES = {"DISPONIBLE", "RETORNANDO"}
 DIVERTABLE_CODES = {"03", "06"}
 VITAL_CODES = {"01", "02"}
+DEFAULT_TARGETS = {"01": 15, "02": 20, "07": 45, "03": 90, "06": 120}
+SERVICE_DURATION_MIN = {"01": 35.0, "02": 35.0, "07": 28.0, "03": 22.0, "06": 22.0}
 
 
 @dataclass
@@ -35,6 +37,57 @@ class _Unit:
     zone_id: str
     release_at: float
     diversion_of: str | None = None
+    workload_4h: int = 0
+    assigned_service_id: str | None = None
+    prev_state: str | None = None
+    prev_zone_id: str | None = None
+    prev_release_at: float | None = None
+
+
+def _release_previous_assignment(fleet: dict[str, _Unit], req_id: str) -> None:
+    for unit in fleet.values():
+        if unit.assigned_service_id != req_id:
+            continue
+        if unit.prev_state is not None:
+            unit.state = unit.prev_state
+        if unit.prev_zone_id is not None:
+            unit.zone_id = unit.prev_zone_id
+        if unit.prev_release_at is not None:
+            unit.release_at = unit.prev_release_at
+        unit.workload_4h = max(0, unit.workload_4h - 1)
+        unit.assigned_service_id = None
+        unit.prev_state = None
+        unit.prev_zone_id = None
+        unit.prev_release_at = None
+
+
+def _occupy_unit(
+    unit: _Unit,
+    req_id: str,
+    zone_id: str,
+    urgency: str,
+    minute: int,
+    eta_min: float,
+) -> None:
+    unit.prev_state = unit.state
+    unit.prev_zone_id = unit.zone_id
+    unit.prev_release_at = unit.release_at
+    duration = SERVICE_DURATION_MIN.get(urgency, 25.0)
+    est_release = float(minute) + max(0.0, eta_min) + duration
+    unit.assigned_service_id = req_id
+    unit.workload_4h += 1
+    if unit.state == "EN_TRASLADO" and unit.release_at > minute:
+        unit.release_at = max(unit.release_at, est_release)
+    else:
+        unit.state = "EN_ATENCION"
+        unit.zone_id = zone_id
+        unit.release_at = est_release
+
+
+def _mean_or_none(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
 
 
 def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
@@ -65,6 +118,14 @@ def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
         for row in data["decision_despachador"]
         if row["id_escenario"] == scenario_id and int(row.get("orden_movil") or 1) == 1
     }
+    ref_paired_decisions = {
+        row["id_solicitud"]: row
+        for row in data["decision_despachador"]
+        if row["id_escenario"] == scenario_id and int(row.get("orden_movil") or 1) == 2
+    }
+    targets = dict(DEFAULT_TARGETS)
+    for tgt_row in db.execute(select(RawResponseTarget)).scalars():
+        targets[tgt_row.urgency_level] = int(tgt_row.target_response_min)
     units_db = {unit.unit_id: unit for unit in db.execute(select(RawUnit)).scalars().all()}
     rules_by_urg: dict[str, dict[str, int]] = {}
     for rule in db.execute(
@@ -92,22 +153,46 @@ def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
 
     def rank(req: dict[str, Any], minute: int) -> None:
         req_id = str(req["id_solicitud"])
-        remember(
-            _rank_request(
-                db,
-                req,
+        _release_previous_assignment(fleet, req_id)
+        eval_out = _rank_request(
+            db,
+            req,
+            codes[req_id],
+            minute,
+            start_dt,
+            fleet,
+            by_request,
+            codes,
+            rules_by_urg,
+            units_db,
+            config,
+            ref_decisions.get(req_id, {}),
+            ref_paired_decisions.get(req_id, {}),
+            targets,
+        )
+        remember(eval_out)
+        if eval_out.recommended_unit_id and eval_out.recommended_unit_id in fleet:
+            _occupy_unit(
+                fleet[eval_out.recommended_unit_id],
+                req_id,
+                str(req["id_zona"]),
                 codes[req_id],
                 minute,
-                start_dt,
-                fleet,
-                by_request,
-                codes,
-                rules_by_urg,
-                units_db,
-                config,
-                ref_decisions.get(req_id, {}),
+                float(eval_out.estimated_travel_min or 0.0),
             )
-        )
+        if (
+            eval_out.paired_unit_id
+            and eval_out.paired_unit_id in fleet
+            and eval_out.paired_unit_id != eval_out.recommended_unit_id
+        ):
+            _occupy_unit(
+                fleet[eval_out.paired_unit_id],
+                req_id,
+                str(req["id_zona"]),
+                codes[req_id],
+                minute,
+                float(eval_out.estimated_travel_min or 0.0),
+            )
 
     for _minute, _order, kind, item in timeline:
         if kind == "req":
@@ -143,14 +228,52 @@ def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
                 unit.state = "EN_RUTA"
                 unit.diversion_of = None
 
-    total = len(order) or 1
-    unit_matches = sum(1 for req_id in order if results[req_id].matches_reference_unit)
-    type_matches = sum(1 for req_id in order if results[req_id].matches_reference_type)
+    ordered_results = [results[req_id] for req_id in order]
+    total = len(ordered_results) or 1
+    unit_matches = sum(1 for r in ordered_results if r.matches_reference_unit)
+    type_matches = sum(1 for r in ordered_results if r.matches_reference_type)
+    paired_with_ref = [r for r in ordered_results if r.reference_paired_unit_id is not None]
+    paired_match_rate = (
+        round(sum(1 for r in paired_with_ref if r.matches_paired_type) / len(paired_with_ref), 4)
+        if paired_with_ref
+        else None
+    )
+    eta_core_vals = [
+        float(r.estimated_travel_min) for r in ordered_results if r.estimated_travel_min is not None
+    ]
+    eta_ref_vals = [
+        float(r.reference_eta_min) for r in ordered_results if r.reference_eta_min is not None
+    ]
+    avg_eta_core = _mean_or_none(eta_core_vals)
+    avg_eta_ref = _mean_or_none(eta_ref_vals)
+    eta_delta = (
+        round(avg_eta_core - avg_eta_ref, 2)
+        if avg_eta_core is not None and avg_eta_ref is not None
+        else None
+    )
+    sla_core_items = [r.sla_met_core for r in ordered_results if r.sla_met_core is not None]
+    sla_ref_items = [r.sla_met_ref for r in ordered_results if r.sla_met_ref is not None]
+    sla_core_pct = (
+        round(100.0 * sum(1 for x in sla_core_items if x) / len(sla_core_items), 1)
+        if sla_core_items
+        else None
+    )
+    sla_ref_pct = (
+        round(100.0 * sum(1 for x in sla_ref_items if x) / len(sla_ref_items), 1)
+        if sla_ref_items
+        else None
+    )
     return ScenarioEvaluationOut(
         scenario=scenario,
-        results=[results[req_id] for req_id in order],
+        results=ordered_results,
         unit_match_rate=round(unit_matches / total, 4),
         type_match_rate=round(type_matches / total, 4),
+        paired_match_rate=paired_match_rate,
+        avg_eta_core_min=avg_eta_core,
+        avg_eta_ref_min=avg_eta_ref,
+        eta_delta_min=eta_delta,
+        sla_core_pct=sla_core_pct,
+        sla_ref_pct=sla_ref_pct,
         events_applied=len(events),
     )
 
@@ -187,6 +310,7 @@ def _apply_event(
         unit.state = "DISPONIBLE"
         unit.release_at = 0
         unit.diversion_of = None
+        unit.assigned_service_id = None
     elif kind == "CANCELACION":
         cancelled.add(req_id)
         origin = requests.get(req_id)
@@ -195,6 +319,7 @@ def _apply_event(
             unit.zone_id = str(origin["id_zona"])
             unit.release_at = 0
             unit.diversion_of = None
+            unit.assigned_service_id = None
     elif kind in ("RECLASIFICACION_EN_SITIO", "RECLASIFICACION_TELEFONICA"):
         new_code = event.get("nueva_clasificacion")
         if new_code and req_id in codes:
@@ -214,6 +339,8 @@ def _rank_request(
     units_db: dict[str, RawUnit],
     config: Any,
     ref: dict[str, Any],
+    ref_paired: dict[str, Any],
+    targets: dict[str, int],
 ) -> ScenarioRequestEvalOut:
     req_id = str(req["id_solicitud"])
     req_dt = start_dt + timedelta(minutes=minute)
@@ -261,9 +388,9 @@ def _rank_request(
                 active=True,
                 simulated_available=kind == "free" or divert,
                 busy_until=busy_until,
-                workload_4h=0,
-                workload_8h=0,
-                workload_12h=0,
+                workload_4h=unit.workload_4h,
+                workload_8h=unit.workload_4h,
+                workload_12h=unit.workload_4h,
                 diversion_of_service_id=unit.diversion_of if divert else None,
             )
         )
@@ -312,6 +439,35 @@ def _rank_request(
         zone_factor = f"Zona de origen {top.unit.current_zone_id}"
         if zone_factor not in factors:
             factors.append(zone_factor)
+    ref_paired_uid = str(ref_paired["id_movil"]) if ref_paired.get("id_movil") else None
+    ref_paired_utype = str(ref_paired["tipo_movil"]) if ref_paired.get("tipo_movil") else None
+    ref_paired_role = str(ref_paired["rol"]) if ref_paired.get("rol") else None
+    paired_unit_obj = fleet.get(top.paired_unit_id) if top and top.paired_unit_id else None
+    paired_unit_type = paired_unit_obj.unit_type if paired_unit_obj else None
+    matches_paired_unit = bool(
+        top
+        and ref_paired_uid
+        and (top.paired_unit_id == ref_paired_uid or top.unit.unit_id == ref_paired_uid)
+    )
+    matches_paired_type = bool(
+        top
+        and ref_paired_utype
+        and (paired_unit_type == ref_paired_utype or top.unit.unit_type == ref_paired_utype)
+    )
+    sla_target = targets.get(urgency, 30)
+    est_travel = top.estimated_travel_min if top else None
+    ref_eta = (
+        float(ref["tiempo_estimado_llegada_min"])
+        if ref.get("tiempo_estimado_llegada_min") is not None
+        else None
+    )
+    sla_met_core = (est_travel <= sla_target) if est_travel is not None else None
+    sla_met_ref = (ref_eta <= sla_target) if ref_eta is not None else None
+    eta_delta = (
+        round(float(est_travel) - float(ref_eta), 2)
+        if est_travel is not None and ref_eta is not None
+        else None
+    )
     return ScenarioRequestEvalOut(
         id_solicitud=req_id,
         minuto_llegada=int(req["minuto_llegada"]),
@@ -323,7 +479,7 @@ def _rank_request(
         recommended_unit_type=top.unit.unit_type if top else None,
         recommended_score=top.score if top else None,
         distance_km=top.distance_km if top else None,
-        estimated_travel_min=top.estimated_travel_min if top else None,
+        estimated_travel_min=est_travel,
         estimated_cost=top.estimated_cost if top else None,
         recommended_role=top.recommended_role if top else None,
         paired_unit_id=top.paired_unit_id if top else None,
@@ -332,16 +488,23 @@ def _rank_request(
         reference_unit_id=str(ref_uid) if ref_uid else None,
         reference_unit_type=str(ref_utype) if ref_utype else None,
         reference_role=str(ref["rol"]) if ref.get("rol") else None,
-        reference_eta_min=float(ref["tiempo_estimado_llegada_min"])
-        if ref.get("tiempo_estimado_llegada_min") is not None
-        else None,
+        reference_eta_min=ref_eta,
         reference_distance_km=ref_candidate.distance_km if ref_candidate else None,
         reference_estimated_cost=ref_candidate.estimated_cost if ref_candidate else None,
         reference_justification=str(ref["justificacion_despachador"])
         if ref.get("justificacion_despachador")
         else None,
+        reference_paired_unit_id=ref_paired_uid,
+        reference_paired_unit_type=ref_paired_utype,
+        reference_paired_role=ref_paired_role,
         matches_reference_unit=bool(top and ref_uid and top.unit.unit_id == ref_uid),
         matches_reference_type=bool(top and ref_utype and top.unit.unit_type == ref_utype),
+        matches_paired_unit=matches_paired_unit,
+        matches_paired_type=matches_paired_type,
+        sla_target_min=sla_target,
+        sla_met_core=sla_met_core,
+        sla_met_ref=sla_met_ref,
+        eta_delta_min=eta_delta,
     )
 
 

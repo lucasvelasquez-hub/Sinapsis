@@ -105,6 +105,7 @@ def test_replay_esc13_uses_release_minute(db: Session) -> None:
     from datetime import datetime, timedelta
 
     start_dt = datetime.strptime(str(start), "%Y-%m-%d %H:%M")
+    assigned_so_far: set[str] = set()
     for req in requests:
         minute = int(req["minuto_llegada"])
         held = {
@@ -115,37 +116,88 @@ def test_replay_esc13_uses_release_minute(db: Session) -> None:
         result = next(row for row in out.results if row.id_solicitud == req["id_solicitud"])
         assert result.recommended_unit_id not in held
         if (
-            result.recommended_role != "PRIMER_RESPONDIENTE_ESTABILIZACION"
-            or result.paired_unit_id is None
+            result.recommended_role == "PRIMER_RESPONDIENTE_ESTABILIZACION"
+            and result.paired_unit_id is not None
         ):
-            continue
-        when = start_dt + timedelta(minutes=minute)
-        traffic = _traffic_factor(db, when)
-        zones = {str(row["id_zona_actual"]) for row in fleet}
-        travel = _travel_lookup(db, zones, str(req["id_zona"]))
-        best_id = None
-        best_cost = None
-        for row in fleet:
-            if row["tipo_movil"] not in AMBULANCES or row["estado"] == "FUERA_SERVICIO":
-                continue
-            release = float(row.get("min_para_liberarse") or 0)
-            if row["estado"] == "EN_ATENCION" and release > minute:
-                continue
-            if row["estado"] not in FREE_STATES and not (
-                row["estado"] == "EN_TRASLADO" or (release > 0 and release <= minute)
-            ):
-                continue
-            valley = travel.get(str(row["id_zona_actual"]))
-            if valley is None:
-                continue
-            remain = (
-                max(0.0, release - minute)
-                if row["estado"] == "EN_TRASLADO" and release > minute
-                else 0.0
-            )
-            cost = round(round(valley[1] * traffic, 2) + 2.0 + remain, 2)
-            uid = str(row["id_movil"])
-            if best_cost is None or cost < best_cost or (cost == best_cost and uid < best_id):
-                best_cost = cost
-                best_id = uid
-        assert result.paired_unit_id == best_id
+            when = start_dt + timedelta(minutes=minute)
+            traffic = _traffic_factor(db, when)
+            zones = {str(row["id_zona_actual"]) for row in fleet}
+            travel = _travel_lookup(db, zones, str(req["id_zona"]))
+            best_id = None
+            best_cost = None
+            for row in fleet:
+                uid = str(row["id_movil"])
+                if (
+                    uid in assigned_so_far
+                    or row["tipo_movil"] not in AMBULANCES
+                    or row["estado"] == "FUERA_SERVICIO"
+                ):
+                    continue
+                release = float(row.get("min_para_liberarse") or 0)
+                if row["estado"] == "EN_ATENCION" and release > minute:
+                    continue
+                if row["estado"] not in FREE_STATES and not (
+                    row["estado"] == "EN_TRASLADO" or (release > 0 and release <= minute)
+                ):
+                    continue
+                valley = travel.get(str(row["id_zona_actual"]))
+                if valley is None:
+                    continue
+                remain = (
+                    max(0.0, release - minute)
+                    if row["estado"] == "EN_TRASLADO" and release > minute
+                    else 0.0
+                )
+                cost = round(round(valley[1] * traffic, 2) + 2.0 + remain, 2)
+                if best_cost is None or cost < best_cost or (cost == best_cost and uid < best_id):
+                    best_cost = cost
+                    best_id = uid
+            assert result.paired_unit_id == best_id
+        if result.recommended_unit_id:
+            assigned_so_far.add(result.recommended_unit_id)
+        if result.paired_unit_id:
+            assigned_so_far.add(result.paired_unit_id)
+
+
+def test_replay_marks_assigned_unit_busy_for_simultaneous_requests(db: Session) -> None:
+    """ESC-03 y ESC-11 no reutilizan el mismo móvil en emergencias simultáneas."""
+    for scenario_id in ("ESC-03", "ESC-11"):
+        out = replay_scenario(db, scenario_id)
+        assigned_primary = [
+            r.recommended_unit_id for r in out.results if r.recommended_unit_id is not None
+        ]
+        assert len(assigned_primary) == len(set(assigned_primary)), (
+            f"{scenario_id} asignó el mismo móvil a solicitudes simultáneas: {assigned_primary}"
+        )
+
+
+def test_replay_evaluates_paired_reference_dispatch(db: Session) -> None:
+    """ESC-04 y ESC-05 incluyen orden_movil == 2 y deben exponer comparación dual."""
+    out04 = replay_scenario(db, "ESC-04")
+    s01 = next(r for r in out04.results if r.id_solicitud == "ESC-04-S01")
+    assert s01.reference_paired_unit_id == "MOV-013"
+    assert s01.reference_paired_unit_type == "TAM"
+    assert out04.paired_match_rate is not None
+
+
+def test_replay_esc13_does_not_double_assign_mov019(db: Session) -> None:
+    """En ESC-13, el móvil asignado o emparejado a S01 no debe asignarse libre a S02."""
+    out = replay_scenario(db, "ESC-13")
+    s01 = next(r for r in out.results if r.id_solicitud == "ESC-13-S01")
+    s02 = next(r for r in out.results if r.id_solicitud == "ESC-13-S02")
+    used_by_s01 = {u for u in (s01.recommended_unit_id, s01.paired_unit_id) if u}
+    assert s02.recommended_unit_id not in used_by_s01
+
+
+def test_replay_computes_sla_and_eta_delta_per_request(db: Session) -> None:
+    """Cada escenario debe devolver métricas simétricas de ETA y SLA CORE vs. Referencia."""
+    out = replay_scenario(db, "ESC-01")
+    assert out.avg_eta_core_min is not None
+    assert out.avg_eta_ref_min is not None
+    assert out.eta_delta_min is not None
+    assert out.sla_core_pct is not None
+    assert out.sla_ref_pct is not None
+    for r in out.results:
+        assert r.sla_target_min is not None
+        assert r.sla_met_core is not None
+        assert r.eta_delta_min is not None

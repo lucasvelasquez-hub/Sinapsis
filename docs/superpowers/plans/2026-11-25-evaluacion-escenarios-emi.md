@@ -66,22 +66,22 @@ Medición real contra DB local (`localhost:5433`, dataset EMI completo) con el `
 - Consumes: `app.services.benchmarks_service.list_scenarios`, `app.services.benchmarks_service.get_kpis_overview`, `app.services.scenario_replay.replay_scenario`.
 - Produces: CLI `uv run python ../scripts/evaluate_scenarios.py [--json out.json] [--md ../docs/decisions/scenario_benchmark_report.md]` que imprime tabla resumen por escenario, tabla de los 12 KPIs (Observado vs. Simulado vs. Meta) y desglose solicitud por solicitud de las 16 discrepancias de tipo y 38 de móvil exacto, incluyendo `justificacion_despachador` y `factors`/`warnings` de CORE.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
   Crear `backend/tests/test_scenario_benchmark_script.py` verificando que la función `build_benchmark_report(db)` retorna los 14 escenarios, 58 solicitudes totales, métricas agregadas (`type_match_rate`, `unit_match_rate`, `avg_eta_core`, `avg_eta_ref`, `eta_delta_min`, `sla_core_pct`, `sla_ref_pct`) y estructura serializable a JSON y Markdown.
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
   Run: `cd backend && uv run pytest tests/test_scenario_benchmark_script.py -v`
   Expected: FAIL (`ModuleNotFoundError` / función no definida).
-- [ ] **Step 3: Implement `scripts/evaluate_scenarios.py`**
+- [x] **Step 3: Implement `scripts/evaluate_scenarios.py`**
   Implementar `build_benchmark_report(db)` y renderizador Markdown/JSON. Clasificar cada discrepancia preliminarmente en: `MATCH_EXACTO`, `MATCH_TIPO_MEJOR_ETA`, `MATCH_TIPO_PEOR_ETA`, `DIFF_TIPO_MEJOR_ETA`, `DIFF_TIPO_PEOR_ETA`, `SIN_MOVIL`.
-- [ ] **Step 4: Generate baseline report & run tests**
+- [x] **Step 4: Generate baseline report & run tests**
   Run:
   ```bash
   cd backend && DATABASE_URL=postgresql+psycopg://core_user:core_password@localhost:5433/core_db \
     uv run python ../scripts/evaluate_scenarios.py --md ../docs/decisions/scenario_benchmark_report.md
   uv run pytest tests/test_scenario_benchmark_script.py -v && uv run ruff check .
   ```
-- [ ] **Step 5: Commit**
-  `feat(bench): agregar script y reporte de línea base EMI`
+- [x] **Step 5: Commit**
+  `42d0676` — `feat(bench): script y reporte de línea base EMI` (160/160 pytest, ruff OK).
 
 ---
 
@@ -100,27 +100,16 @@ Medición real contra DB local (`localhost:5433`, dataset EMI completo) con el `
   - Manejo correcto de `ESC-13` (retención de camillas: respetar `estado` y `min_para_liberarse` reales del Excel) y `ESC-06`/`ESC-07`/`ESC-08` (reclasificaciones).
   - Cálculo simétrico de `reference_eta_min`, `reference_distance_km`, `reference_estimated_cost` y `sla_met_core` / `sla_met_ref` por solicitud.
 
-- [ ] **Step 1: Inspeccionar causas raíz de discrepancias en `ESC-03`, `ESC-04`, `ESC-06`, `ESC-07`, `ESC-12`, `ESC-13`**
-  Usar el reporte generado en Task 1 para documentar en `docs/decisions/scenario_benchmark_report.md` cuáles fallos son bugs del replay (p. ej. no ocupar la unidad al asignarla, ignorar `orden_movil=2`, estados de `ESC-13`) y cuáles son decisiones reales del motor.
-- [ ] **Step 2: Write failing tests for replay fidelity**
-  Añadir tests en `backend/tests/test_scenario_replay.py`:
-  - `test_replay_marks_assigned_unit_busy_for_subsequent_requests` (`ESC-03` y `ESC-11` no asignan la misma unidad libre a 2 emergencias simultáneas).
-  - `test_replay_evaluates_paired_reference_dispatch` (`ESC-04`/`ESC-05` compara también `orden_movil == 2`).
-  - `test_replay_respects_hospital_retention_in_esc13` (`ESC-13` maneja retención D08).
-  - `test_replay_computes_sla_and_eta_delta_per_request`.
-- [ ] **Step 3: Run tests to verify failure**
-  Run: `cd backend && uv run pytest tests/test_scenario_replay.py -v`
-- [ ] **Step 4: Implement faithful state transitions in `scenario_replay.py` and schema extensions in `benchmarks.py`**
-  Actualizar `_Unit`, `_rank_request`, aplicación de eventos y `ScenarioRequestEvalOut` / `ScenarioEvaluationOut`.
-- [ ] **Step 5: Run tests, lint & regenerate benchmark report**
-  Run:
-  ```bash
-  cd backend && uv run pytest -q && uv run ruff check . && uv run ruff format --check .
-  DATABASE_URL=postgresql+psycopg://core_user:core_password@localhost:5433/core_db \
-    uv run python ../scripts/evaluate_scenarios.py --md ../docs/decisions/scenario_benchmark_report.md
-  ```
-- [ ] **Step 6: Commit**
-  `fix(bench): modelar ocupación de flota y despacho dual en replay`
+- [x] **Step 1: Inspeccionar causas raíz de discrepancias en `ESC-03`, `ESC-04`, `ESC-06`, `ESC-07`, `ESC-12`, `ESC-13`**
+  Documentado: doble asignación en `ESC-11` (`MOV-010` × 3) y `ESC-13` (`MOV-019` × 2), ausencia de comparación de `orden_movil == 2` (7 solicitudes duales en el Excel).
+- [x] **Step 2: Write failing tests for replay fidelity**
+  Añadidos 4 tests en `backend/tests/test_scenario_replay.py` (ocupación simultánea `ESC-03`/`ESC-11`, despacho dual `ESC-04`, no doble asignación `MOV-019` en `ESC-13`, métricas simétricas ETA/SLA).
+- [x] **Step 3: Run tests to verify failure**
+  Confirmado: 4 nuevos tests fallaron (y 5 previos pasaron).
+- [x] **Step 4: Implement faithful state transitions in `scenario_replay.py` and schema extensions in `benchmarks.py`**
+  Implementado `_occupy_unit`, `_release_previous_assignment`, `workload_4h` dinámico, comparación `orden_movil == 2` y agregados ETA/SLA. Resultado medido tras Task 2: Match Tipo subió de **72.4% → 77.6% (45/58)**, ETA CORE **15.8m vs. 18.3m Ref (Δ −2.5m)**, SLA CORE **86.2% vs. 82.5% Ref**, 0 dobles asignaciones.
+- [x] **Step 5: Run tests, lint & regenerate benchmark report**
+- [x] **Step 6: Commit**
 
 ---
 
