@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
+from app.domain.assignment_policy import PolicyUnit, is_transfer_likely, rank_units
 from app.domain.enums import RecommendationStatus, UnitRole
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import utcnow
@@ -68,18 +69,6 @@ class ScoredCandidate:
     compatibility_rank: int
     factors: list[str]
     warnings: list[str]
-    vital_priority_tier: int = 0
-    local_zone_tier: int = 2
-
-    @property
-    def sort_key(self) -> tuple[int, int, float, int, float]:
-        return (
-            self.vital_priority_tier,
-            self.local_zone_tier,
-            self.score,
-            self.compatibility_rank,
-            self.expected_response_min,
-        )
 
 
 def _effective_weights(
@@ -312,7 +301,6 @@ def score_candidates(
     eff_wt, eff_wl, eff_wc, eff_wk, vital_mode = _effective_weights(
         service.urgency_level, weight_time, weight_workload, weight_cost, weight_coverage
     )
-    has_tab = any(u.unit_type == "TAB" for u in units)
     scored: list[ScoredCandidate] = []
     for idx, (unit, (_, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
         zip(units, predictions, norm_time, norm_workload, norm_cost, norm_coverage, strict=True)
@@ -339,14 +327,12 @@ def score_candidates(
         else:
             est_label = est_type
 
-        is_r04_vmd = False
         if (
             service.urgency_level in ("01", "02")
             and unit.unit_type == "VMD"
             and best_amb_time > target_min
             and eff_time <= best_amb_time - VMD_ADVANTAGE_THRESHOLD_MIN
         ):
-            is_r04_vmd = True
             role = UnitRole.PRIMER_RESPONDIENTE_ESTABILIZACION.value
             paired_id = best_amb_id
             factors.append(
@@ -368,31 +354,11 @@ def score_candidates(
         else:
             factors.append(f"Carga reciente: {unit.workload_4h} servicios en 4h")
 
-        if unit.unit_id in risky_coverage_units:
-            warnings.append("Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min")
-        if service.urgency_level == "02" and unit.unit_type == "TAM" and has_tab:
-            warnings.append("Regla D05: hay TAB disponible; reservar TAM para emergencias 01")
         if compat_rank >= 4:
             warnings.append(
                 f"Tipo {unit.unit_type} no recomendado para clasificación {service.urgency_level}"
             )
 
-        vital_tier = 1 if (vital_mode and unit.unit_type == "VMD" and not is_r04_vmd) else 0
-        # Prioridad territorial: 0 = misma zona, 1 = mismo municipio, 2 = mejor unidad externa.
-        unit_zone_obj = zones_map.get(unit.current_zone_id or "")
-        if unit.current_zone_id == service.zone_id:
-            local_tier = 0
-            factors.insert(1, f"Recurso local en la misma zona ({service.zone_id})")
-        elif (
-            dest_zone is not None
-            and unit_zone_obj is not None
-            and unit_zone_obj.municipality == dest_zone.municipality
-        ):
-            local_tier = 1
-            factors.insert(1, f"Recurso en el mismo municipio ({dest_zone.municipality})")
-        else:
-            local_tier = 2
-        # Regla D02 en prioridad vital: solo desempata por costo cuando la diferencia es <3 min.
         d02_cost_weight = 0.02 if vital_mode else eff_wc
 
         scored.append(
@@ -422,11 +388,57 @@ def score_candidates(
                 compatibility_rank=compat_rank,
                 factors=factors,
                 warnings=warnings,
-                vital_priority_tier=vital_tier,
-                local_zone_tier=local_tier,
             )
         )
-    return sorted(scored, key=lambda c: c.sort_key)
+    return _order_by_policy(scored, service, target_min, risky_coverage_units)
+
+
+def _order_by_policy(
+    scored: list[ScoredCandidate],
+    service: RawService,
+    target_min: float,
+    risky_coverage_units: set[str],
+) -> list[ScoredCandidate]:
+    """Orden de rank_units. La VMD marcada R04 queda delante hasta que la política emita el rol."""
+    if not scored:
+        return []
+    policy_units = [
+        PolicyUnit(
+            unit_id=c.unit.unit_id,
+            unit_type=c.unit.unit_type,
+            arrival_min=c.expected_response_min,
+            cost=float(c.estimated_cost or 0.0),
+            workload=compute_raw_workload_index(
+                c.unit.workload_4h, c.unit.workload_8h, c.unit.workload_12h
+            ),
+            leaves_alta_uncovered=c.unit.unit_id in risky_coverage_units,
+            diverted_from_service_id=None,
+        )
+        for c in scored
+    ]
+    ranked = rank_units(
+        service.urgency_level,
+        target_min,
+        policy_units,
+        transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+    )
+    by_id = {c.unit.unit_id: c for c in scored}
+    ordered: list[ScoredCandidate] = []
+    for item in ranked:
+        candidate = by_id[item.unit.unit_id]
+        for warning in item.warnings:
+            if warning not in candidate.warnings:
+                candidate.warnings.append(warning)
+        ordered.append(candidate)
+    responders = [
+        c
+        for c in ordered
+        if c.recommended_role == UnitRole.PRIMER_RESPONDIENTE_ESTABILIZACION.value
+    ]
+    if not responders:
+        return ordered
+    rest = [c for c in ordered if c not in responders]
+    return responders + rest
 
 
 def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
