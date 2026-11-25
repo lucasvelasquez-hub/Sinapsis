@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Layers, Map as MapIcon } from "lucide-react";
 import dynamic from "next/dynamic";
 import { type KeyboardEvent, useMemo, useRef, useState } from "react";
@@ -63,6 +63,7 @@ export default function DispatchCenterPage() {
     queryKey: ["request-detail", selectedServiceId],
     queryFn: () => coreApi.getRequestDetail(selectedServiceId!),
     enabled: Boolean(selectedServiceId),
+    placeholderData: keepPreviousData,
     refetchInterval: 10_000,
     refetchOnWindowFocus: true,
   });
@@ -71,6 +72,7 @@ export default function DispatchCenterPage() {
     queryKey: ["eligibility", selectedServiceId],
     queryFn: () => coreApi.getEligibility(selectedServiceId!),
     enabled: Boolean(selectedServiceId),
+    placeholderData: keepPreviousData,
   });
 
   const decisionsQuery = useQuery({
@@ -185,7 +187,7 @@ export default function DispatchCenterPage() {
         return {
           lat,
           lon,
-          zoom: 13.8,
+          zoom: 14.5,
           key: `${detail.service_id}:unit:${detail.assigned_unit_id}`,
         };
       }
@@ -195,7 +197,7 @@ export default function DispatchCenterPage() {
       return {
         lat: req.lat,
         lon: req.lon,
-        zoom: 13.2,
+        zoom: 13.8,
         key: `${detail.service_id}:zone:${detail.zone_id}`,
       };
     }
@@ -204,7 +206,7 @@ export default function DispatchCenterPage() {
       return {
         lat: zone.lat_centroid,
         lon: zone.lon_centroid,
-        zoom: 13.2,
+        zoom: 13.8,
         key: `${detail.service_id}:zone:${detail.zone_id}`,
       };
     }

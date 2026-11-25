@@ -295,10 +295,26 @@ export default function AburraMap({
   const unitMarkersRef = useRef<
     Map<string, { marker: maplibregl.Marker; el: HTMLDivElement; styleKey: string; tooltip: string }>
   >(new Map());
-  const latestDataRef = useRef({ zones, units, activeRequests, liveMap, layerMode, trafficFactor });
+  const latestDataRef = useRef({
+    zones,
+    units,
+    activeRequests,
+    liveMap,
+    layerMode,
+    trafficFactor,
+    focusPoint,
+  });
   useEffect(() => {
-    latestDataRef.current = { zones, units, activeRequests, liveMap, layerMode, trafficFactor };
-  }, [zones, units, activeRequests, liveMap, layerMode, trafficFactor]);
+    latestDataRef.current = {
+      zones,
+      units,
+      activeRequests,
+      liveMap,
+      layerMode,
+      trafficFactor,
+      focusPoint,
+    };
+  }, [zones, units, activeRequests, liveMap, layerMode, trafficFactor, focusPoint]);
 
   // Initialize MapLibre GL map once (bearing -90 rotates map 90° clockwise: North right, South left;
   // vector tiles keep all street and neighborhood labels upright automatically)
@@ -343,7 +359,18 @@ export default function AburraMap({
         liveMap: curLive,
         layerMode: curMode,
         trafficFactor: curTraffic,
+        focusPoint: curFocus,
       } = latestDataRef.current;
+      if (curFocus) {
+        lastFocusKeyRef.current = curFocus.key;
+        map.flyTo({
+          center: [curFocus.lon, curFocus.lat],
+          zoom: curFocus.zoom ?? 14.4,
+          bearing: -90,
+          duration: 750,
+          essential: true,
+        });
+      }
       const initialGeo = buildZonesGeoJson(curZones, curUnits, curLive, curMode, curTraffic);
 
       map.addSource("sector-links", {
@@ -640,14 +667,15 @@ export default function AburraMap({
   }, [units, bases, activeRequests, liveMap, selectedUnitId, onSelectUnit]);
 
   // Smoothly fly/zoom to a requested focus point (e.g., assigned unit or selected service)
-  // Triggered only when focusPoint.key changes so manual pan/zoom is never overridden.
+  // Triggered only when focusPoint.key changes and map is loaded, so manual pan/zoom is preserved.
   useEffect(() => {
-    if (!focusPoint || !mapRef.current) return;
+    if (!focusPoint || !mapRef.current || !loadedRef.current) return;
     if (lastFocusKeyRef.current === focusPoint.key) return;
     lastFocusKeyRef.current = focusPoint.key;
     mapRef.current.flyTo({
       center: [focusPoint.lon, focusPoint.lat],
-      zoom: focusPoint.zoom ?? 13.6,
+      zoom: focusPoint.zoom ?? 14.4,
+      bearing: -90,
       duration: 750,
       essential: true,
     });
