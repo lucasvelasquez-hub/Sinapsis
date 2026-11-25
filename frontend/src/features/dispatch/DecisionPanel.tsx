@@ -131,6 +131,9 @@ export function DecisionPanel({
   const eligibleNow = new Set(
     eligibility?.eligible_units.map((u) => u.unit_id),
   );
+  const currentZoneByUnit = new Map(
+    eligibility?.eligible_units.map((u) => [u.unit_id, u.current_zone_id]) ?? [],
+  );
   const unavailable = new Set(
     eligibility
       ? (rec?.candidates ?? [])
@@ -219,6 +222,7 @@ export function DecisionPanel({
                 <CandidateOption
                   key={cand.unit_id}
                   cand={cand}
+                  currentZoneId={currentZoneByUnit.get(cand.unit_id) ?? null}
                   commonWarnings={commonWarnings}
                   unavailable={unavailable.has(cand.unit_id)}
                   selected={
@@ -325,12 +329,14 @@ function confirmLabel(
 
 function CandidateOption({
   cand,
+  currentZoneId,
   commonWarnings,
   unavailable,
   selected,
   onSelect,
 }: {
   cand: RecommendationCandidate;
+  currentZoneId: string | null;
   commonWarnings: string[];
   unavailable: boolean;
   selected: boolean;
@@ -371,7 +377,17 @@ function CandidateOption({
                 {cand.unit_id}
               </span>
               <span className="text-xs text-slate-300">
-                {cand.unit_type}, {cand.base_id}
+                {cand.unit_type}
+                {currentZoneId ? (
+                  <>
+                    {" · "}
+                    <span className="font-mono text-cyan-200/90">
+                      {currentZoneId}
+                    </span>
+                  </>
+                ) : null}
+                {" · "}
+                <span className="text-slate-400">{cand.base_id}</span>
               </span>
               {top && !unavailable && (
                 <span className="text-xs font-semibold text-cyan-200">
@@ -512,7 +528,9 @@ function RejectOptions({
           >
             <span className="font-mono text-slate-100">{u.unit_id}</span>
             <span className="text-slate-300">
-              {u.unit_type}, {u.base_id}, {u.workload_4h} servicios en 4h
+              {u.unit_type}
+              {u.current_zone_id ? `, ${u.current_zone_id}` : ""}, {u.base_id},{" "}
+              {u.workload_4h} servicios en 4h
             </span>
           </button>
         ))}

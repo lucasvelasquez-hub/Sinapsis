@@ -62,6 +62,7 @@ export interface UnitStatus {
   current_zone_id?: string | null;
   current_lat?: number | null;
   current_lon?: number | null;
+  distance_km?: number | null;
   observation?: string | null;
   active: boolean;
   simulated_available: boolean;
@@ -76,7 +77,8 @@ export type ExclusionCode =
   | "INCOMPATIBLE_TYPE"
   | "INSUFFICIENT_CAPACITY"
   | "OUT_OF_SHIFT"
-  | "BUSY_IN_SIMULATION";
+  | "BUSY_IN_SIMULATION"
+  | "OUT_OF_RANGE";
 
 export interface ExclusionReason {
   unit_id: string;

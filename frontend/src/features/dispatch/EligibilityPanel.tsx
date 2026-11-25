@@ -80,8 +80,9 @@ export function EligibilityPanel({
             <tr>
               <th className="pb-1 font-normal">Unidad</th>
               <th className="pb-1 font-normal">Tipo</th>
-              <th className="pb-1 font-normal">Base</th>
-              <th className="pb-1 text-right font-normal">Servicios 4h</th>
+              <th className="pb-1 font-normal">Zona actual</th>
+              <th className="pb-1 text-right font-normal">Dist.</th>
+              <th className="pb-1 text-right font-normal">4h</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800/80">
@@ -102,7 +103,15 @@ export function EligibilityPanel({
                   )}
                 </td>
                 <td className="py-1.5 text-slate-300">{u.unit_type}</td>
-                <td className="py-1.5 text-slate-300">{u.base_id}</td>
+                <td
+                  title={`Base ${u.base_id}`}
+                  className="py-1.5 font-mono text-cyan-200/90"
+                >
+                  {u.current_zone_id ?? u.base_id}
+                </td>
+                <td className="py-1.5 text-right font-mono tabular-nums text-slate-200">
+                  {u.distance_km != null ? `${u.distance_km.toFixed(1)} km` : "—"}
+                </td>
                 <td className="py-1.5 text-right tabular-nums text-slate-300">
                   {u.workload_4h}
                 </td>
