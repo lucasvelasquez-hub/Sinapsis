@@ -27,8 +27,11 @@ Arquitectura (7 nodos): `docs/architecture/overview.md`.
 
 - **La decisión final es siempre del despachador humano.** CORE recomienda (Top 3), nunca despacha
   solo. Ningún endpoint ni UI asigna una unidad sin acción humana registrada en `decision.dispatch_decisions`.
-- **Sin GPS ni distancias**: no hay ETA individual, costo operativo ni cobertura geográfica. El tiempo
-  esperado es contextual (histórico/ML). No inventar features geográficas.
+- **Geografía y tiempos (dataset EMI)**: el sistema cuenta con coordenadas de zonas, bases y
+  centros de atención, matriz origen-destino (`raw.zone_travel_times`), factores de tráfico
+  (`raw.traffic_factors`) y distancia Haversine (`domain/geo.py`) + posiciones simuladas/en vivo
+  de móviles. El tiempo esperado combina contexto O-D/tráfico/distancia e histórico/ML (no usa
+  telemetría GPS en tiempo real externa).
 - **Procedencia visible**: todo dato mostrado lleva su badge `OBSERVADO` / `CALCULADO` / `PREDICHO` /
   `SIMULADO` (`frontend/src/components/ProvenanceBadge.tsx`). Excepción (decisión del usuario,
   2026-11-20): en la pantalla de Despacho, vista operativa, se omiten `OBSERVADO` y `CALCULADO`;
@@ -85,38 +88,42 @@ Reglas puras compartidas (hora pico, ventanas 4/8/12h, turnos, enums de estado) 
 duplicarlas en los services. `ml/features.py` es la única construcción de features (entrenamiento y
 predicción); `ml/artifact.py` valida el artefacto con su manifiesto al arrancar.
 
-Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T + w_L·L, pesos en
-`core.scoring_config`) → `prediction_service` → `recommendation_service` (Top 3) →
-`decision_service` / `simulation_service` / `audit_service`.
+Motores: `eligibility_service` (A = E·S·D) → `scoring_service` (J = w_T·T + w_L·L + w_C·C + w_K·K,
+pesos 0.50/0.20/0.15/0.15 en `core.scoring_config`) → `prediction_service` → `recommendation_service`
+(Top 3) → `decision_service` / `simulation_service` / `simulation_control_service` /
+`benchmarks_service` / `audit_service`.
 
 **DB — 4 schemas** (no expuestos a la Data API de Supabase; solo el backend accede):
 
 | Schema | Tablas |
 |--------|--------|
-| `raw` | `services`, `units`, `service_rules`, `response_targets` |
+| `raw` | `services`, `units`, `bases`, `zones`, `zone_travel_times`, `traffic_factors`, `care_centers`, `service_rules`, `response_targets` |
 | `analytics` | `service_features`, `unit_workload`, `demand_aggregates`, `prediction_results` |
 | `decision` | `recommendations`, `recommendation_candidates`, `dispatch_decisions` |
 | `core` | `scoring_config`, `simulation_sessions`, `audit_events` |
 
-**Frontend** (`frontend/src/`): `app/(platform)/{dispatch,dashboard,intelligence,fleet,analytics}` ·
+**Frontend** (`frontend/src/`): `app/(platform)/{dispatch,dashboard,intelligence,fleet,analytics,benchmarks,simulation}` ·
 `components/` · `features/` · `stores/` (Zustand) · `lib/api.ts` (cliente HTTP, `NEXT_PUBLIC_API_BASE_URL`) ·
 `types/core.ts`.
 
-**Datos**: `data/raw/` es inmutable: dataset sintético mínimo (servicios, unidades, reglas, objetivos;
-valores en español: `CRITICA`, `EMERGENCIA_MEDICA`, `COMUNA_05`, `TURNO_DIA`). Los CSV llevan BOM
-(`utf-8-sig`). Scripts en `scripts/`: `validate_dataset.py` (validación + informe de calidad) e
+**Datos**: `data/raw/` es inmutable: dataset real de Grupo EMI (EstudIA) compuesto por
+`01_servicios_historicos.json` (10.402 servicios), `02_moviles_y_bases.json` (26 móviles `VMD`/`TAB`/`TAM`
+en 8 bases), `05_zonas_y_tiempos.xlsx` (62 zonas, 3.844 pares O-D, 10 centros de atención, 72 factores de
+tráfico), `06_escenarios_referencia.xlsx` y `07_indicadores.xlsx` (clasificaciones EMI `01`/`02`/`07`/`03`/`06`,
+zonas `Z-*`, turnos). Scripts en `scripts/`: `validate_dataset.py` (validación + informe de calidad) e
 `ingest_and_prepare.py` (aborta si el validador encuentra problemas; carga incremental vía
-`app/services/ingestion_service.py`: reglas y objetivos se reemplazan, unidades y servicios se
-actualizan por clave, lo que desaparece del CSV se borra salvo que lo referencien recomendaciones o
-decisiones, en cuyo caso el servicio se conserva tal cual y la unidad queda inactiva; las solicitudes
-simuladas no se tocan). Los vocabularios los sirve
-`GET /api/v1/catalog`; el front no mantiene listas propias.
+`app/services/ingestion_service.py`: catálogos geográficos, reglas y objetivos se reemplazan, unidades y
+servicios se actualizan por clave, lo que desaparece del origen se borra salvo que lo referencien
+recomendaciones o decisiones, en cuyo caso el servicio se conserva tal cual y la unidad queda inactiva;
+las solicitudes simuladas no se tocan). Los vocabularios los sirve `GET /api/v1/catalog`; el front no
+mantiene listas propias.
 
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
-- **Estado (2026-11-20): Supabase en la revisión `fb8e822f8f09` con el dataset mínimo ingerido**
-  (10.000 servicios, 30 unidades, 15 reglas, 4 objetivos). La app de desarrollo apunta a Supabase.
+- **Estado (2026-11-25): Supabase en la revisión `d9b2e5a1c4f0` (head) con el dataset real EMI ingerido**
+  (10.402 servicios históricos + simulados, 26 móviles en 8 bases, 62 zonas, 3.844 pares O-D, 10 centros de
+  atención, 72 factores de tráfico, 15 reglas y 5 objetivos). La app de desarrollo apunta a Supabase.
 - La app usa la DB de `DATABASE_URL` (`backend/.env`). Los tests NO: `tests/conftest.py` la fuerza a
   `TEST_DATABASE_URL` o al Docker local. Con `.env` apuntando a Supabase, `alembic` e
   `ingest_and_prepare.py` actúan sobre Supabase: ingerir allí es una escritura y requiere permiso explícito.

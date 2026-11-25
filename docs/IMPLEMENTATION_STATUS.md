@@ -1,9 +1,9 @@
 # CORE — Implementation Status
 
-Última actualización: 2026-11-19
+Última actualización: 2026-11-25
 
 ## Fase Actual
-**Fase 10 (Estabilización, Verificación E2E y Documentación)** — MVP v1.0 completo en verificación final.
+**Fase 11 (Adaptación a datos reales Grupo EMI — EstudIA)** — MVP v1.0 adaptado al dominio, esquema, ML, simulador geográfico y benchmarks de Grupo EMI, desplegado en Supabase (`d9b2e5a1c4f0`).
 
 ## Progreso General
 - [x] Fase 1: Monorepo, Docker/PostgreSQL, FastAPI base, Dataset sintético + validación
@@ -16,24 +16,24 @@
 - [x] Fase 8: Intelligence Center, Simulación & Auditoría E2E
 - [x] Fase 9: QA (Pytest, Vitest) & Validación matemática
 - [x] Fase 10: Estabilización, Documentación & Demostración final
+- [x] Fase 11: Adaptación a datos reales Grupo EMI (esquema geográfico/O-D, MCDM 4 criterios, ML reentrenado, Benchmarks y Simulador con mapa del Valle de Aburrá)
 
 ## Funcionalidades Terminadas
-- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic (`042b83efd042`, `1c5125447ef6`, `faa75e1c0208` override de elegibilidad, `545b0996db2b` FK/CHECK/decisión única).
-- **Dataset & Features**: 10.000 servicios, 30 móviles, 15 reglas, 4 objetivos, 90 días. Feature engineering cronológico sin leakage temporal (`zone_demand_4h/8h/12h`).
-- **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor`. Dataset mínimo: seleccionado `linear_regression_ridge` por MAE de validación (`4.2111` vs baseline `4.2680`); en test MAE `3.7562` vs baseline `3.6898` (el baseline gana en MAE; el ridge gana en p90 `7.16` vs `7.92` y RMSE). Features sin `same_zone` (el dataset no relaciona base con comuna).
+- **Persistencia PostgreSQL (4 schemas)**: `raw` (`services`, `units`, `bases`, `zones`, `zone_travel_times`, `traffic_factors`, `care_centers`, `service_rules`, `response_targets`), `analytics`, `decision` y `core`, con migraciones Alembic hasta `d9b2e5a1c4f0` (incluyendo `c7a1f4d9e2b3` adaptación EMI y `d9b2e5a1c4f0` `distance_km` en candidatos).
+- **Dataset Real EMI & Features**: 10.402 servicios históricos (2026-03-16 → 2026-04-30), 26 móviles (`VMD`: 14, `TAB`: 8, `TAM`: 4) en 8 bases, 62 zonas, 3.844 pares O-D, 10 centros de atención, 72 factores de tráfico, 15 reglas y 5 objetivos (`01`, `02`, `07`, `03`, `06`). Feature engineering cronológico sin leakage temporal con features geográficas y de tráfico (`distance_km`, `valley_time_min`, `traffic_factor`, `relative_demand`).
+- **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor` sobre datos EMI (artefacto v2, scikit-learn `1.9.1`). Seleccionado `linear_regression_ridge`: en validación MAE `12.8912` (p90 `23.9009`, RMSE `22.8550`) vs baseline `19.6917` y RF `13.0026`; en test MAE `11.2775` (p90 `21.6511`, RMSE `18.9981`) vs baseline `17.2944` y RF `11.2947`.
 - **Motores de Decisión**:
-  - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ con motivos explícitos de exclusión.
-  - `scoring_service.py`: Normalización $[0, 100]$ y $J(j) = w_T \cdot T(j) + w_L \cdot L(j)$ (0.80 / 0.20 configurables).
-  - `recommendation_service.py`: Top 3 alternativas explicables o estado explícito `NO_ELIGIBLE_UNITS`.
-  - `decision_service.py` & `simulation_service.py`: Registro de decisiones humanas y actualización de disponibilidad simulada.
-- **API REST (`/api/v1/*`)**: `health`, `requests`, `requests/simulate`, `requests/{id}`, `recommendations/evaluate`, `recommendations/{id}`, `fleet/units`, `fleet/eligibility/{id}`, `analytics/overview`, `analytics/demand`, `decisions`, `config/scoring`.
-- **Frontend Next.js**: 5 pantallas operacionales (`/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`) con Apache ECharts, React Hook Form + Zod, Zustand, TanStack Query y badges de procedencia (`OBSERVADO`, `CALCULADO`, `PREDICHO`, `SIMULADO`).
-- **Tests**: Pytest (`91 passed`: flujo E2E, invariantes de decisión, simulación, dominio, restricciones DB, esquema raw, validador del dataset, catálogo, presupuesto de queries, artefacto ML; aislados en transacción y siempre contra Docker local) y Vitest (`21 passed`). CI en `.github/workflows/ci.yml`.
+  - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ con reglas EMI y motivos explícitos de exclusión.
+  - `scoring_service.py`: Normalización $[0, 100]$ y $J(j) = w_T \cdot T(j) + w_L \cdot L(j) + w_C \cdot C(j) + w_K \cdot K(j)$ (`0.50 / 0.20 / 0.15 / 0.15` configurables; costo y cobertura activos).
+  - `recommendation_service.py`: Top 3 alternativas explicables (incluyendo `distance_km`) o estado explícito `NO_ELIGIBLE_UNITS`.
+  - `decision_service.py`, `simulation_service.py`, `simulation_control_service.py` y `benchmarks_service.py`: Registro de decisiones humanas, simulación operativa con posiciones en vivo/reloj/llegadas/cierres y evaluación de KPIs y escenarios de referencia (`06_escenarios_referencia.xlsx`, `07_indicadores.xlsx`).
+- **API REST (`/api/v1/*`)**: `health`, `catalog`, `requests`, `requests/simulate`, `requests/{id}`, `recommendations/evaluate`, `recommendations/{id}`, `fleet/units`, `fleet/eligibility/{id}`, `analytics/overview`, `analytics/demand`, `benchmarks/kpis`, `benchmarks/scenarios`, `benchmarks/scenarios/{id}/evaluate`, `simulation/{state,positions,arrive/{id},complete/{id},advance-clock,generate}`, `decisions`, `config/scoring`.
+- **Frontend Next.js**: 7 pantallas operacionales (`/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`, `/benchmarks`, `/simulation` con mapa interactivo `AburraMap`) con Apache ECharts, React Hook Form + Zod, Zustand, TanStack Query y badges de procedencia (`OBSERVADO`, `CALCULADO`, `PREDICHO`, `SIMULADO`).
+- **Tests**: Pytest (`125` tests: flujo E2E, invariantes de decisión, simulación y control de simulación, benchmarks, dominio, restricciones DB, esquema raw, validador del dataset EMI, catálogo, presupuesto de queries, artefacto ML; aislados en transacción y siempre contra Docker local) y Vitest (`79 passed` en 14 archivos). CI en `.github/workflows/ci.yml`.
 
 ## Decisiones Técnicas y Limitaciones
-- Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
-- El tiempo esperado es contextual histórico/ML, nunca ETA individual por GPS.
-- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `fb8e822f8f09`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
+- Sin telemetría GPS externa en tiempo real: las distancias y tiempos usan coordenadas de zonas/bases/centros de atención, matriz O-D (`raw.zone_travel_times`), factores de tráfico (`raw.traffic_factors`), distancia Haversine (`domain/geo.py`) y posiciones simuladas/ingresadas en `simulation_control_service`.
+- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `d9b2e5a1c4f0`, dataset real EMI ingerido). Docker local (`localhost:5433`) queda para tests y CI.
 
 ## Pendientes técnicos
 
