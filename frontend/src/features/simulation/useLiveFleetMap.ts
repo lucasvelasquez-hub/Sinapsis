@@ -43,6 +43,7 @@ export function useLiveFleetMap({
   trafficFactor = 1.0,
   speed = 1,
   enabled = true,
+  onArrive,
 }: {
   zones: SimZone[];
   bases: SimBase[];
@@ -52,9 +53,15 @@ export function useLiveFleetMap({
   trafficFactor?: number;
   speed?: number;
   enabled?: boolean;
+  onArrive?: (serviceId: string) => void;
 }): Record<string, LivePos> {
   const [liveMap, setLiveMap] = useState<Record<string, LivePos>>({});
   const inflightRoutes = useRef<Set<string>>(new Set());
+  const arrivedSent = useRef<Set<string>>(new Set());
+  const onArriveRef = useRef(onArrive);
+  useEffect(() => {
+    onArriveRef.current = onArrive;
+  }, [onArrive]);
   const transferTargets = useRef<
     Record<string, { centerId: string; lat: number; lon: number; zoneId: string }>
   >({});
@@ -192,7 +199,14 @@ export function useLiveFleetMap({
 
           if (moved.reachedEnd) {
             let nextZone = tgtZone;
-            if (!assignedReq && !isTransferring && u.simulated_available) {
+            if (
+              assignedReq &&
+              !assignedReq.arrival_datetime &&
+              !arrivedSent.current.has(assignedReq.service_id)
+            ) {
+              arrivedSent.current.add(assignedReq.service_id);
+              onArriveRef.current?.(assignedReq.service_id);
+            } else if (!assignedReq && !isTransferring && u.simulated_available) {
               const sector = zonesByBase.get(u.base_id);
               const pool = sector && sector.length > 0 ? sector : zones;
               nextZone = pool[Math.floor(Math.random() * pool.length)].zone_id;

@@ -1,6 +1,6 @@
 "use client";
 
-import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FileText, Layers, Map as MapIcon } from "lucide-react";
 import dynamic from "next/dynamic";
 import { type KeyboardEvent, useMemo, useRef, useState } from "react";
@@ -12,6 +12,8 @@ import { EligibilityPanel } from "@/features/dispatch/EligibilityPanel";
 import { LastDecisionBanner } from "@/features/dispatch/LastDecisionBanner";
 import { RequestQueue } from "@/features/dispatch/RequestQueue";
 import { RequestSummaryCard } from "@/features/dispatch/RequestSummaryCard";
+import { MapLayerLegendBar } from "@/features/simulation/MapLayerLegendBar";
+import type { MapLayerMode } from "@/features/simulation/movement";
 import { useLiveFleetMap } from "@/features/simulation/useLiveFleetMap";
 import { coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -38,6 +40,7 @@ export default function DispatchCenterPage() {
   const queryClient = useQueryClient();
   const { selectedServiceId, filters } = useDispatchStore();
   const [centerView, setCenterView] = useState<CenterView>("hybrid");
+  const [layerMode, setLayerMode] = useState<MapLayerMode>("demand");
   const [manualMapUnit, setManualMapUnit] = useState<{
     serviceId: string;
     unitId: string;
@@ -132,6 +135,35 @@ export default function DispatchCenterPage() {
     [simState?.active_requests],
   );
 
+  const arriveMutation = useMutation({
+    mutationFn: coreApi.arriveSimulationService,
+    onMutate: (serviceId) => {
+      queryClient.setQueryData(["simulation-state"], (old: typeof simStateQuery.data) => {
+        if (!old) return old;
+        const target = old.active_requests.find((r) => r.service_id === serviceId);
+        const nowIso = old.current_sim_datetime || new Date().toISOString();
+        return {
+          ...old,
+          active_requests: old.active_requests.map((r) =>
+            r.service_id === serviceId
+              ? { ...r, arrival_datetime: r.arrival_datetime ?? nowIso }
+              : r,
+          ),
+          units: old.units.map((u) =>
+            target?.assigned_unit_id && u.unit_id === target.assigned_unit_id
+              ? { ...u, operational_state: "EN_ATENCION" as const }
+              : u,
+          ),
+        };
+      });
+    },
+    onSuccess: (_res, serviceId) => {
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["request-detail", serviceId] });
+    },
+  });
+
   const tacticalLiveMap = useLiveFleetMap({
     zones: simZones,
     bases: simBases,
@@ -140,6 +172,7 @@ export default function DispatchCenterPage() {
     activeRequests: simActiveRequests,
     trafficFactor: simState?.traffic_factor ?? 1.0,
     enabled: centerView !== "clinical",
+    onArrive: (serviceId) => arriveMutation.mutate(serviceId),
   });
 
   const focusedRequests = useMemo(() => {
@@ -290,26 +323,12 @@ export default function DispatchCenterPage() {
                   className="flex flex-1 flex-col gap-3 lg:min-h-0"
                 >
                   {/* Card 1: Mapa Táctico Geoespacial */}
-                  <div className="ops-panel shrink-0 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3">
-                    <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
-                      <span className="font-bold uppercase tracking-wider text-slate-200">
-                        Mapa Táctico Geoespacial
-                      </span>
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center gap-1">
-                          <span className="h-2 w-2 rounded-full bg-rose-400" />
-                          TAM
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="h-2 w-2 rounded-full bg-orange-400" />
-                          TAB
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                          VMD
-                        </span>
-                      </div>
-                    </div>
+                  <div className="ops-panel shrink-0 space-y-2 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3">
+                    <MapLayerLegendBar
+                      layerMode={layerMode}
+                      onChangeLayer={setLayerMode}
+                      compact
+                    />
                     {simState ? (
                       <AburraMap
                         zones={simState.zones}
@@ -318,6 +337,7 @@ export default function DispatchCenterPage() {
                         units={simState.units}
                         activeRequests={focusedRequests}
                         liveMap={tacticalLiveMap}
+                        layerMode={layerMode}
                         trafficFactor={simState.traffic_factor ?? 1.0}
                         selectedUnitId={effectiveMapUnitId}
                         onSelectUnit={handleSelectMapUnit}
@@ -353,30 +373,10 @@ export default function DispatchCenterPage() {
                   aria-labelledby="dispatch-tab-map"
                   className="ops-panel flex flex-1 flex-col gap-2 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3 lg:min-h-0"
                 >
-                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                    <span className="font-bold uppercase tracking-wider text-slate-200">
-                      Red EMI · Valle de Aburrá (Tráfico{" "}
-                      {(simState?.traffic_factor ?? 1.0).toFixed(2)}x)
-                    </span>
-                    <div className="flex items-center gap-3">
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-rose-400" />
-                        TAM
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-orange-400" />
-                        TAB
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                        VMD
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                        Clínica
-                      </span>
-                    </div>
-                  </div>
+                  <MapLayerLegendBar
+                    layerMode={layerMode}
+                    onChangeLayer={setLayerMode}
+                  />
                   {simState ? (
                     <div className="flex-1 min-h-[420px]">
                       <AburraMap
@@ -386,6 +386,7 @@ export default function DispatchCenterPage() {
                         units={simState.units}
                         activeRequests={focusedRequests}
                         liveMap={tacticalLiveMap}
+                        layerMode={layerMode}
                         trafficFactor={simState.traffic_factor ?? 1.0}
                         selectedUnitId={effectiveMapUnitId}
                         onSelectUnit={handleSelectMapUnit}
