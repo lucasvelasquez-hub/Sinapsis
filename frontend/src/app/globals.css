@@ -76,6 +76,12 @@
   border-color: #c3cedd !important;
 }
 
+:root[data-contrast="high"] main :where([class*="bg-slate-800"], [class*="bg-slate-700"]):not(.ops-rec-header):not(.ops-panel) {
+  background-color: #dce5f0 !important;
+  border-color: #b8c6d8 !important;
+  color: #1e293b !important;
+}
+
 :root[data-contrast="high"] .core-map-container {
   background-color: #d1e1ff !important;
 }

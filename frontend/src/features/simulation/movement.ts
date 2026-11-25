@@ -231,7 +231,7 @@ export function evaluateZoneCoverageD03(
   return result;
 }
 
-const SECTOR_PALETTE = [
+const SECTOR_PALETTE_DARK = [
   "#22d3ee",
   "#a78bfa",
   "#34d399",
@@ -246,12 +246,28 @@ const SECTOR_PALETTE = [
   "#38bdf8",
 ];
 
-function unitSectorColor(unitId: string): string {
+const SECTOR_PALETTE_LIGHT = [
+  "#0369a1",
+  "#6d28d9",
+  "#047857",
+  "#c2410c",
+  "#be185d",
+  "#a16207",
+  "#1d4ed8",
+  "#15803d",
+  "#7e22ce",
+  "#be123c",
+  "#0f766e",
+  "#4338ca",
+];
+
+function unitSectorColor(unitId: string, lightMode = false): string {
   let hash = 0;
   for (let i = 0; i < unitId.length; i += 1) {
     hash = (hash * 31 + unitId.charCodeAt(i)) >>> 0;
   }
-  return SECTOR_PALETTE[hash % SECTOR_PALETTE.length];
+  const palette = lightMode ? SECTOR_PALETTE_LIGHT : SECTOR_PALETTE_DARK;
+  return palette[hash % palette.length];
 }
 
 export interface ZoneSectorD01 {
@@ -274,7 +290,8 @@ export function evaluateZoneSectorsD01(
   zones: ReadonlyArray<SimZone>,
   units: ReadonlyArray<Pick<SimUnit, "unit_id" | "unit_type" | "active" | "simulated_available" | "lat" | "lon">>,
   livePositions: Readonly<Record<string, { lat: number; lon: number }>>,
-  trafficFactor: number
+  trafficFactor: number,
+  lightMode = false
 ): Map<string, ZoneSectorD01> {
   const speedKmh = computeEffectiveSpeedKmh(trafficFactor);
   const available = units.filter((u) => u.active && u.simulated_available);
@@ -324,7 +341,7 @@ export function evaluateZoneSectorsD01(
       unitLon: bestLon,
       distanceKm: distRounded,
       etaMin: etaRounded,
-      color: unitSectorColor(bestUnit.unit_id),
+      color: unitSectorColor(bestUnit.unit_id, lightMode),
       label: `${z.zone_id} · ${z.comuna} · Sector ${bestUnit.unit_id} (${bestUnit.unit_type} · ${distRounded} km · ~${etaRounded}m)`,
     });
   }

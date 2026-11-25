@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Activity,
   BarChart3,
@@ -14,12 +14,14 @@ import {
   Navigation,
   PanelLeftClose,
   PanelLeftOpen,
+  Pause,
+  Play,
   Radio,
   ShieldCheck,
   Target,
   Truck,
 } from "lucide-react";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { coreApi } from "@/lib/api";
@@ -54,6 +56,22 @@ function readSidebarCollapsed(): boolean {
   }
 }
 
+function formatSimClock(iso: string, addSeconds: number): string {
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2}))?/);
+  if (!m) return iso.replace("T", " ").slice(0, 19);
+  const utcMs = Date.UTC(
+    Number(m[1]),
+    Number(m[2]) - 1,
+    Number(m[3]),
+    Number(m[4]),
+    Number(m[5]),
+    Number(m[6] ?? "0") + addSeconds
+  );
+  const d = new Date(utcMs);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`;
+}
+
 const NAV_ITEMS = [
   { href: "/dispatch", label: "Dispatch Center", icon: Radio },
   { href: "/simulation", label: "Simulation", icon: Navigation },
@@ -66,6 +84,7 @@ const NAV_ITEMS = [
 
 export function PlatformShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
+  const queryClient = useQueryClient();
   const storedHighContrast = useSyncExternalStore(
     subscribePrefs,
     readContrast,
@@ -78,6 +97,12 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   );
   const [fallbackHighContrast, setFallbackHighContrast] = useState<boolean | null>(null);
   const [fallbackSidebar, setFallbackSidebar] = useState<boolean | null>(null);
+  const [clockRunning, setClockRunning] = useState(true);
+  const [clockTick, setClockTick] = useState<{ anchorIso: string; offsetSec: number }>({
+    anchorIso: "",
+    offsetSec: 0,
+  });
+  const advancingRef = useRef(false);
 
   const highContrast = fallbackHighContrast ?? storedHighContrast;
   const sidebarCollapsed = fallbackSidebar ?? storedSidebarCollapsed;
@@ -121,6 +146,45 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
     queryFn: coreApi.getAnalyticsOverview,
     refetchInterval: 15_000,
   });
+
+  const advanceClockMutation = useMutation({
+    mutationFn: (minutes: number) => coreApi.advanceSimulationClock(minutes),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+      void queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+    },
+    onSettled: () => {
+      advancingRef.current = false;
+    },
+  });
+
+  const serverClockIso = overviewQuery.data?.simulation_datetime ?? "";
+  const advanceMutateRef = useRef(advanceClockMutation.mutate);
+  useEffect(() => {
+    advanceMutateRef.current = advanceClockMutation.mutate;
+  }, [advanceClockMutation.mutate]);
+
+  useEffect(() => {
+    if (!clockRunning || !serverClockIso) return;
+    const timer = window.setInterval(() => {
+      setClockTick((prev) => {
+        const nextOffset = prev.anchorIso === serverClockIso ? prev.offsetSec + 1 : 1;
+        if (nextOffset > 0 && nextOffset % 60 === 0 && !advancingRef.current) {
+          advancingRef.current = true;
+          advanceMutateRef.current(1);
+        }
+        return { anchorIso: serverClockIso, offsetSec: nextOffset };
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [clockRunning, serverClockIso]);
+
+  const displayedClock = serverClockIso
+    ? formatSimClock(
+        serverClockIso,
+        clockTick.anchorIso === serverClockIso ? clockTick.offsetSec : 0
+      )
+    : "—";
 
   const healthStatus =
     healthQuery.data?.status === "ok"
@@ -265,13 +329,24 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
             )}
 
             <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-700/80 bg-[#071322] px-2.5 py-1 font-mono text-[11px] tabular-nums text-slate-300">
+              <span
+                className={cn(
+                  "h-1.5 w-1.5 rounded-full",
+                  clockRunning ? "animate-pulse bg-sky-400" : "bg-slate-500"
+                )}
+              />
               <Clock className="h-3.5 w-3.5 text-sky-400" />
               <span className="text-slate-400">Reloj:</span>
-              <span className="font-semibold text-sky-200">
-                {overview
-                  ? overview.simulation_datetime.replace("T", " ").slice(0, 16)
-                  : "—"}
-              </span>
+              <span className="font-semibold text-sky-200">{displayedClock}</span>
+              <button
+                type="button"
+                onClick={() => setClockRunning((r) => !r)}
+                title={clockRunning ? "Pausar reloj de simulación" : "Reanudar reloj de simulación"}
+                aria-label={clockRunning ? "Pausar reloj de simulación" : "Reanudar reloj de simulación"}
+                className="ml-0.5 inline-flex h-4 w-4 cursor-pointer items-center justify-center rounded-full bg-slate-800/90 text-sky-300 transition-colors hover:bg-sky-600 hover:text-white"
+              >
+                {clockRunning ? <Pause className="h-2.5 w-2.5" /> : <Play className="h-2.5 w-2.5" />}
+              </button>
             </div>
 
             {/* Operational Telemetry Pills: SLA, Servicios Activos, Flota */}

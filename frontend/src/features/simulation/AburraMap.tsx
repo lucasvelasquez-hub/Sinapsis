@@ -120,7 +120,8 @@ function buildZonesGeoJson(
   units: SimUnit[],
   liveMap: Record<string, LivePos>,
   layerMode: MapLayerMode,
-  trafficFactor: number
+  trafficFactor: number,
+  lightMode = false
 ): { zones: GeoJSON.FeatureCollection; sectorLinks: GeoJSON.FeatureCollection } {
   if (layerMode === "coverage_d03") {
     const cov = evaluateZoneCoverageD03(zones, units, liveMap, trafficFactor);
@@ -146,7 +147,7 @@ function buildZonesGeoJson(
   }
 
   if (layerMode === "sectors_d01") {
-    const sectors = evaluateZoneSectorsD01(zones, units, liveMap, trafficFactor);
+    const sectors = evaluateZoneSectorsD01(zones, units, liveMap, trafficFactor, lightMode);
     const linkFeatures: GeoJSON.Feature[] = [];
     const zoneFeatures: GeoJSON.Feature[] = [];
     for (const z of zones) {
@@ -158,7 +159,7 @@ function buildZonesGeoJson(
           zone_id: z.zone_id,
           label: s?.label ?? z.zone_id,
           color: s?.color ?? "#475569",
-          fillOpacity: 0.24,
+          fillOpacity: lightMode ? 0.36 : 0.24,
         },
       });
       if (s?.unitLat != null && s?.unitLon != null) {
@@ -458,7 +459,7 @@ export default function AburraMap({
           essential: true,
         });
       }
-      const initialGeo = buildZonesGeoJson(curZones, curUnits, curLive, curMode, curTraffic);
+      const initialGeo = buildZonesGeoJson(curZones, curUnits, curLive, curMode, curTraffic, lightMode);
 
       if (!map.getSource("sector-links")) {
         map.addSource("sector-links", {
@@ -471,8 +472,8 @@ export default function AburraMap({
           source: "sector-links",
           paint: {
             "line-color": ["get", "color"],
-            "line-width": 1.2,
-            "line-opacity": 0.4,
+            "line-width": lightMode ? 1.8 : 1.2,
+            "line-opacity": lightMode ? 0.72 : 0.4,
           },
         });
       }
@@ -491,8 +492,8 @@ export default function AburraMap({
             "circle-color": ["get", "color"],
             "circle-opacity": ["get", "fillOpacity"],
             "circle-stroke-color": ["get", "color"],
-            "circle-stroke-width": 1,
-            "circle-stroke-opacity": 0.45,
+            "circle-stroke-width": lightMode ? 1.6 : 1,
+            "circle-stroke-opacity": lightMode ? 0.78 : 0.45,
           },
         });
       }
@@ -572,7 +573,9 @@ export default function AburraMap({
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !loadedRef.current) return;
-    const geo = buildZonesGeoJson(zones, units, liveMap, layerMode, trafficFactor);
+    const lightMode =
+      typeof document !== "undefined" && document.documentElement.dataset.contrast === "high";
+    const geo = buildZonesGeoJson(zones, units, liveMap, layerMode, trafficFactor, lightMode);
     const zSrc = map.getSource("zones") as maplibregl.GeoJSONSource | undefined;
     zSrc?.setData(geo.zones);
     const lSrc = map.getSource("sector-links") as maplibregl.GeoJSONSource | undefined;
