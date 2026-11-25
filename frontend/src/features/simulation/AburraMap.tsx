@@ -165,6 +165,7 @@ export default function AburraMap({
   const loadedRef = useRef(false);
   const zonePopupRef = useRef<maplibregl.Popup | null>(null);
   const markerPopupRef = useRef<maplibregl.Popup | null>(null);
+  const hoveredMarkerRef = useRef(false);
   const staticMarkersRef = useRef<maplibregl.Marker[]>([]);
   const requestMarkersRef = useRef<maplibregl.Marker[]>([]);
   const unitMarkersRef = useRef<
@@ -247,7 +248,8 @@ export default function AburraMap({
         },
       });
 
-      map.on("mouseenter", "zones-circle", (e) => {
+      map.on("mousemove", "zones-circle", (e) => {
+        if (hoveredMarkerRef.current) return;
         const feat = e.features?.[0];
         if (!feat || feat.geometry.type !== "Point") return;
         const coords = feat.geometry.coordinates as [number, number];
@@ -292,12 +294,17 @@ export default function AburraMap({
 
     for (const b of bases) {
       const el = createBaseElement();
+      el.style.zIndex = "22";
       const label = `Base ${b.base_id} · ${b.name}`;
       el.addEventListener("mouseenter", () => {
+        hoveredMarkerRef.current = true;
         zonePopupRef.current?.remove();
         markerPopupRef.current?.setLngLat([b.lon, b.lat]).setHTML(popupHtml(label)).addTo(map);
       });
-      el.addEventListener("mouseleave", () => markerPopupRef.current?.remove());
+      el.addEventListener("mouseleave", () => {
+        hoveredMarkerRef.current = false;
+        markerPopupRef.current?.remove();
+      });
       const marker = new maplibregl.Marker({ element: el, anchor: "center" })
         .setLngLat([b.lon, b.lat])
         .addTo(map);
@@ -306,12 +313,17 @@ export default function AburraMap({
 
     for (const c of careCenters) {
       const el = createClinicElement();
+      el.style.zIndex = "20";
       const label = `${c.center_id} · ${c.name} (${c.complexity_level})`;
       el.addEventListener("mouseenter", () => {
+        hoveredMarkerRef.current = true;
         zonePopupRef.current?.remove();
         markerPopupRef.current?.setLngLat([c.lon, c.lat]).setHTML(popupHtml(label)).addTo(map);
       });
-      el.addEventListener("mouseleave", () => markerPopupRef.current?.remove());
+      el.addEventListener("mouseleave", () => {
+        hoveredMarkerRef.current = false;
+        markerPopupRef.current?.remove();
+      });
       const marker = new maplibregl.Marker({ element: el, anchor: "center" })
         .setLngLat([c.lon, c.lat])
         .addTo(map);
@@ -334,14 +346,19 @@ export default function AburraMap({
 
     for (const r of activeRequests) {
       const el = createPatientElement();
+      el.style.zIndex = "15";
       const stateTxt =
         r.status === "DISPATCHED" ? (r.arrival_datetime ? "EN_ATENCION" : "EN_RUTA") : r.status;
       const label = `${r.service_id} · EMI ${r.urgency_level} (${stateTxt}) · ${r.service_type}`;
       el.addEventListener("mouseenter", () => {
+        hoveredMarkerRef.current = true;
         zonePopupRef.current?.remove();
         markerPopupRef.current?.setLngLat([r.lon, r.lat]).setHTML(popupHtml(label)).addTo(map);
       });
-      el.addEventListener("mouseleave", () => markerPopupRef.current?.remove());
+      el.addEventListener("mouseleave", () => {
+        hoveredMarkerRef.current = false;
+        markerPopupRef.current?.remove();
+      });
       const marker = new maplibregl.Marker({ element: el, anchor: "center" })
         .setLngLat([r.lon, r.lat])
         .addTo(map);
@@ -409,11 +426,15 @@ export default function AburraMap({
           onSelectUnit(u.unit_id);
         });
         el.addEventListener("mouseenter", () => {
+          hoveredMarkerRef.current = true;
           zonePopupRef.current?.remove();
           const lngLat = record.marker.getLngLat();
           markerPopupRef.current?.setLngLat(lngLat).setHTML(popupHtml(record.tooltip)).addTo(map);
         });
-        el.addEventListener("mouseleave", () => markerPopupRef.current?.remove());
+        el.addEventListener("mouseleave", () => {
+          hoveredMarkerRef.current = false;
+          markerPopupRef.current?.remove();
+        });
         unitMarkersRef.current.set(u.unit_id, record);
       } else {
         entry.marker.setLngLat([lon, lat]);
