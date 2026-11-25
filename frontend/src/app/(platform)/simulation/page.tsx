@@ -145,8 +145,10 @@ export default function SimulationPage() {
         };
       });
     },
-    onSuccess: () => {
+    onSuccess: (_res, serviceId) => {
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["request-detail", serviceId] });
     },
   });
 

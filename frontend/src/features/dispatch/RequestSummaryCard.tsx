@@ -88,9 +88,27 @@ export function RequestSummaryCard({ detail }: { detail: RequestDetail }) {
         </div>
         <div>
           <dt className="text-slate-400">Estado</dt>
-          <dd className="mt-0.5 text-sm font-semibold text-slate-100">
-            {STATUS_LABEL[detail.status] ?? detail.status}
+          <dd
+            className={cn(
+              "mt-0.5 text-sm font-semibold",
+              detail.status === "DISPATCHED"
+                ? detail.arrival_datetime
+                  ? "text-amber-300"
+                  : "text-cyan-300"
+                : "text-slate-100",
+            )}
+          >
+            {detail.status === "DISPATCHED"
+              ? detail.arrival_datetime
+                ? "EN_ATENCION"
+                : "EN_RUTA"
+              : (STATUS_LABEL[detail.status] ?? detail.status)}
             {detail.assigned_unit_id ? ` (${detail.assigned_unit_id})` : ""}
+            {detail.status === "DISPATCHED" && detail.arrival_datetime && (
+              <span className="ml-1.5 font-mono text-xs font-normal text-slate-300">
+                · llegada {detail.arrival_datetime.slice(11, 16)}
+              </span>
+            )}
           </dd>
         </div>
       </dl>

@@ -197,17 +197,29 @@ export function RequestQueue({
               </div>
               <div className="mt-1 flex items-center justify-between gap-2 text-xs text-slate-400">
                 <span className="truncate">{req.service_type}</span>
-                <span
-                  className={
+                {(() => {
+                  const statusText =
+                    req.status === "DISPATCHED"
+                      ? req.arrival_datetime
+                        ? "EN_ATENCION"
+                        : "EN_RUTA"
+                      : (STATUS_LABEL[req.status] ?? req.status);
+                  const statusTone =
                     req.status === "PENDING"
                       ? "text-amber-200"
-                      : "text-slate-300"
-                  }
-                >
-                  {req.is_synthetic
-                    ? `Simulada, ${(STATUS_LABEL[req.status] ?? req.status).toLowerCase()}`
-                    : (STATUS_LABEL[req.status] ?? req.status)}
-                </span>
+                      : req.status === "DISPATCHED"
+                        ? req.arrival_datetime
+                          ? "font-mono text-amber-300"
+                          : "font-mono text-cyan-300"
+                        : "text-slate-300";
+                  return (
+                    <span className={statusTone}>
+                      {req.is_synthetic
+                        ? `Simulada, ${req.status === "DISPATCHED" ? statusText : statusText.toLowerCase()}`
+                        : statusText}
+                    </span>
+                  );
+                })()}
               </div>
             </button>
           );

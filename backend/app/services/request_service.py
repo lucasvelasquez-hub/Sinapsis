@@ -115,7 +115,6 @@ def get_request_detail(db: Session, service_id: str) -> RequestDetail:
     return RequestDetail(
         **summary.model_dump(),
         assignment_datetime=srv.assignment_datetime,
-        arrival_datetime=srv.arrival_datetime,
         closure_datetime=srv.closure_datetime,
         service_duration_min=srv.service_duration_min,
         context=_build_request_context(db, srv),

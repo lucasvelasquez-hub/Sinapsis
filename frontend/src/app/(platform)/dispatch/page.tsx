@@ -28,12 +28,16 @@ export default function DispatchCenterPage() {
         q: filters.search || undefined,
         limit: 40,
       }),
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 
   const detailQuery = useQuery({
     queryKey: ["request-detail", selectedServiceId],
     queryFn: () => coreApi.getRequestDetail(selectedServiceId!),
     enabled: Boolean(selectedServiceId),
+    refetchInterval: 10_000,
+    refetchOnWindowFocus: true,
   });
 
   const eligibilityQuery = useQuery({

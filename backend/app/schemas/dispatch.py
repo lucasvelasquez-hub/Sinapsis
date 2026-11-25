@@ -25,6 +25,7 @@ class RequestSummary(ORMModel):
     closure_state: str | None = None
     is_synthetic: bool
     assigned_unit_id: str | None = None
+    arrival_datetime: datetime | None = None
     response_time_min: float | None = None
 
 
@@ -42,7 +43,6 @@ class RequestContext(BaseModel):
 
 class RequestDetail(RequestSummary):
     assignment_datetime: datetime | None = None
-    arrival_datetime: datetime | None = None
     closure_datetime: datetime | None = None
     service_duration_min: float | None = None
     context: RequestContext

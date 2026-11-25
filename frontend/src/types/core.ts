@@ -28,6 +28,7 @@ export interface RequestSummary {
   status: string;
   is_synthetic: boolean;
   assigned_unit_id: string | null;
+  arrival_datetime?: string | null;
   response_time_min: number | null;
 }
 
