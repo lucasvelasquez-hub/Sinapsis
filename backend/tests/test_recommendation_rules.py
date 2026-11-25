@@ -2,6 +2,7 @@
 
 from app.services.recommendation_service import (
     _d06_possible_transfer,
+    _effective_weights,
     _proximity_tier,
 )
 from app.services.scoring_service import normalize_workload_0_100
@@ -32,3 +33,32 @@ def test_workload_normalization_does_not_inflate_single_service_to_100() -> None
     assert normalize_workload_0_100([0.0, 4.0]) == [0.0, 100.0]
     # Igual carga -> todos 0
     assert normalize_workload_0_100([2.0, 2.0]) == [0.0, 0.0]
+
+
+def test_traffic_scales_time_weight_continuously_and_preserves_unit_sum() -> None:
+    # Valle / madrugada (1.0x): pesos intactos
+    wt, wl, wc, wk, vital, adjusted = _effective_weights("07", 0.50, 0.20, 0.15, 0.15, 1.0)
+    assert (wt, wl, wc, wk, vital, adjusted) == (0.50, 0.20, 0.15, 0.15, False, False)
+
+    # Sábado mediodía (1.35x): ajuste intermedio progresivo (~0.61) y suma 1.0
+    wt_sat, wl_sat, wc_sat, wk_sat, vital_sat, adj_sat = _effective_weights(
+        "07", 0.50, 0.20, 0.15, 0.15, 1.35
+    )
+    assert adj_sat is True
+    assert vital_sat is False
+    assert 0.55 < wt_sat < 0.65
+    assert round(wt_sat + wl_sat + wc_sat + wk_sat, 4) == 1.0
+
+    # L-V hora pico 7am (1.65x): boost completo (0.50 -> 0.70) y suma 1.0
+    wt_pk, wl_pk, wc_pk, wk_pk, _, adj_pk = _effective_weights("07", 0.50, 0.20, 0.15, 0.15, 1.65)
+    assert adj_pk is True
+    assert wt_pk == 0.70
+    assert wt_pk > wt_sat
+    assert round(wt_pk + wl_pk + wc_pk + wk_pk, 4) == 1.0
+
+    # Urgencia vital (01) en pico (1.65x): 0.80 -> 0.88 y suma 1.0
+    wt_v, wl_v, wc_v, wk_v, vital_v, adj_v = _effective_weights("01", 0.50, 0.20, 0.15, 0.15, 1.65)
+    assert adj_v is True
+    assert vital_v is True
+    assert wt_v == 0.88
+    assert round(wt_v + wl_v + wc_v + wk_v, 4) == 1.0

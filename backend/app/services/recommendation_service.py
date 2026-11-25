@@ -54,6 +54,10 @@ MID_RANGE_MAX_DISTANCE_KM = 10.0
 MID_RANGE_MAX_TRAVEL_MIN = 22.0
 D02_CLOSE_TIME_DIFF_MIN = 3.0
 D07_VMD_SUPPORT_MAX_MIN = 12.0
+TRAFFIC_BASE_FACTOR = 1.0
+TRAFFIC_PEAK_FACTOR = 1.65
+TRAFFIC_MAX_TIME_BOOST = 0.20
+TRAFFIC_MAX_VITAL_BOOST = 0.08
 D06_TRANSFER_KEYWORDS = (
     "caída",
     "caida",
@@ -131,11 +135,36 @@ def _effective_weights(
     weight_workload: float,
     weight_cost: float,
     weight_coverage: float,
-) -> tuple[float, float, float, float, bool]:
-    """En 01/02 prima la vida: tiempo y cobertura sobre costo (D02 solo desempata <3 min)."""
-    if urgency_level in ("01", "02"):
-        return 0.80, 0.10, 0.00, 0.10, True
-    return weight_time, weight_workload, weight_cost, weight_coverage, False
+    traffic_factor: float = 1.0,
+) -> tuple[float, float, float, float, bool, bool]:
+    """Pesos efectivos MCDM: prioridad vital en 01/02 y ajuste continuo de w_T según tráfico
+    (que varía por hora y tipo de día: L-V, Sábado, Domingo/Festivo en raw.traffic_factors).
+    """
+    vital_mode = urgency_level in ("01", "02")
+    if vital_mode:
+        wt, wl, wc, wk = 0.80, 0.10, 0.00, 0.10
+        max_boost, max_wt = TRAFFIC_MAX_VITAL_BOOST, 0.88
+    else:
+        wt, wl, wc, wk = weight_time, weight_workload, weight_cost, weight_coverage
+        max_boost, max_wt = TRAFFIC_MAX_TIME_BOOST, 0.80
+
+    traffic_adjusted = False
+    traffic_span = TRAFFIC_PEAK_FACTOR - TRAFFIC_BASE_FACTOR
+    intensity = max(0.0, min(1.0, (traffic_factor - TRAFFIC_BASE_FACTOR) / traffic_span))
+    boost = round(max_boost * intensity, 4)
+    if boost > 0 and wt < max_wt:
+        new_wt = min(max_wt, round(wt + boost, 4))
+        other_sum = wl + wc + wk
+        remaining = round(1.0 - new_wt, 4)
+        if other_sum > 0 and remaining >= 0:
+            scale = remaining / other_sum
+            wl = round(wl * scale, 4)
+            wc = round(wc * scale, 4)
+            wk = round(max(0.0, remaining - wl - wc), 4)
+        wt = new_wt
+        traffic_adjusted = True
+
+    return wt, wl, wc, wk, vital_mode, traffic_adjusted
 
 
 def _day_type(dt: datetime) -> str:
@@ -352,8 +381,13 @@ def score_candidates(
     norm_cost = normalize_min_max_0_100(costs)
     norm_coverage = normalize_min_max_0_100(coverages)
 
-    eff_wt, eff_wl, eff_wc, eff_wk, vital_mode = _effective_weights(
-        service.urgency_level, weight_time, weight_workload, weight_cost, weight_coverage
+    eff_wt, eff_wl, eff_wc, eff_wk, vital_mode, heavy_traffic_boosted = _effective_weights(
+        service.urgency_level,
+        weight_time,
+        weight_workload,
+        weight_cost,
+        weight_coverage,
+        traffic_factor=traffic,
     )
     has_adequate_tab = any(
         u.unit_type == "TAB" and effective_times[i] <= target_min for i, u in enumerate(units)
@@ -431,6 +465,12 @@ def score_candidates(
             )
         else:
             factors.append("Balance operativo: optimiza tiempo (D01), costo (D02) y carga (D04)")
+
+        if heavy_traffic_boosted:
+            factors.append(
+                f"Tráfico {traffic:.2f}x ({_day_type(service.request_datetime)}, "
+                f"{service.request_datetime.hour:02d}:00): w_T ajustado a {eff_wt:.2f}"
+            )
 
         if unit.workload_4h == 0:
             factors.append("Sin carga reciente en 4h")
