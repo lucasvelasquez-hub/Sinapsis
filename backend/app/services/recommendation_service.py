@@ -282,6 +282,10 @@ def score_candidates(
             dist_km = 5.0
             est_travel = None
             eff_time = ml_min
+        if unit.busy_until is not None:
+            hold = (unit.busy_until - service.request_datetime).total_seconds() / 60.0
+            if hold > 0:
+                eff_time = round(eff_time + hold, 2)
 
         has_dist = tr is not None or dist_km_opt is not None
         distances_km.append(round(dist_km, 2) if has_dist else None)

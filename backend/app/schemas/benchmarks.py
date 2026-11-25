@@ -72,3 +72,4 @@ class ScenarioEvaluationOut(BaseModel):
     results: list[ScenarioRequestEvalOut]
     unit_match_rate: float
     type_match_rate: float
+    events_applied: int = 0
