@@ -97,7 +97,37 @@ class CompleteServiceOut(BaseModel):
     closure_state: str
     destination_center: str | None = None
     released_unit_id: str | None = None
+    stretcher_retention_min: int | None = None
     closure_datetime: datetime
+
+
+class ReclassifyServiceIn(BaseModel):
+    new_urgency_level: str = Field(..., pattern=r"^(01|02|07|03|06)$")
+    origin: str = Field(
+        default="RECLASIFICACION_TELEFONICA",
+        pattern=r"^(RECLASIFICACION_TELEFONICA|RECLASIFICACION_EN_SITIO)$",
+    )
+
+
+class ReclassifyServiceOut(BaseModel):
+    service_id: str
+    previous_urgency_level: str
+    urgency_level: str
+    manchester_scale: str
+    origin: str
+
+
+class DivertUnitIn(BaseModel):
+    unit_id: str = Field(..., min_length=1, max_length=64)
+    target_service_id: str = Field(..., min_length=1, max_length=64)
+    dispatcher_id: str = Field(..., min_length=1, max_length=64)
+
+
+class DivertUnitOut(BaseModel):
+    unit_id: str
+    target_service_id: str
+    returned_service_id: str
+    decision_id: str
 
 
 class ArriveServiceOut(BaseModel):

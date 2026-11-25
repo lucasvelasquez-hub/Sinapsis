@@ -363,7 +363,23 @@ export interface CompleteServiceOut {
   closure_state: string;
   destination_center?: string | null;
   released_unit_id: string | null;
+  stretcher_retention_min?: number | null;
   closure_datetime: string;
+}
+
+export interface ReclassifyServiceOut {
+  service_id: string;
+  previous_urgency_level: string;
+  urgency_level: string;
+  manchester_scale: string;
+  origin: string;
+}
+
+export interface DivertUnitOut {
+  unit_id: string;
+  target_service_id: string;
+  returned_service_id: string;
+  decision_id: string;
 }
 
 export interface AdvanceClockOut {

@@ -5,9 +5,11 @@ import type {
   AnalyticsOverview,
   CompleteServiceOut,
   DecisionOut,
+  DivertUnitOut,
   EligibilityEvaluation,
   HealthResponse,
   KpisOverview,
+  ReclassifyServiceOut,
   RecommendationOut,
   RequestDetail,
   RequestSummary,
@@ -197,5 +199,27 @@ export const coreApi = {
     apiFetch<{ created: Array<{ service_id: string }> }>("/simulation/generate", {
       method: "POST",
       body: JSON.stringify({ count }),
+    }),
+
+  reclassifySimulationService: (
+    serviceId: string,
+    payload: {
+      new_urgency_level: string;
+      origin: "RECLASIFICACION_TELEFONICA" | "RECLASIFICACION_EN_SITIO";
+    }
+  ) =>
+    apiFetch<ReclassifyServiceOut>(`/simulation/reclassify/${serviceId}`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
+  divertSimulationUnit: (payload: {
+    unit_id: string;
+    target_service_id: string;
+    dispatcher_id: string;
+  }) =>
+    apiFetch<DivertUnitOut>("/simulation/divert", {
+      method: "POST",
+      body: JSON.stringify(payload),
     }),
 };

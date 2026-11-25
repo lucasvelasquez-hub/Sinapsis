@@ -97,6 +97,7 @@ export default function SimulationPage() {
   const [gpsCooldownSec, setGpsCooldownSec] = useState<number>(0);
   const [closureChoice, setClosureChoice] = useState<Record<string, { state: string; centerId: string }>>({});
   const [closingIds, setClosingIds] = useState<Record<string, boolean>>({});
+  const [simNotice, setSimNotice] = useState<string | null>(null);
 
   const [liveMap, setLiveMap] = useState<Record<string, LivePos>>({});
   const liveRef = useRef<Record<string, LivePos>>({});
@@ -395,6 +396,11 @@ export default function SimulationPage() {
       return coreApi.completeSimulationService(serviceId, { closure_state, destination_center_id });
     },
     onSuccess: (res, vars) => {
+      if (res.stretcher_retention_min && res.released_unit_id) {
+        setSimNotice(
+          `Regla D08: ${res.released_unit_id} en retención de camilla (~${res.stretcher_retention_min} min) en ${res.destination_center ?? "clínica"}.`
+        );
+      }
       queryClient.setQueryData(["simulation-state"], (old: typeof stateQuery.data) => {
         if (!old) return old;
         return {
@@ -402,7 +408,9 @@ export default function SimulationPage() {
           active_requests: old.active_requests.filter((r) => r.service_id !== vars.serviceId),
           units: old.units.map((u) =>
             u.unit_id === res.released_unit_id
-              ? { ...u, simulated_available: true, busy_until: null }
+              ? res.stretcher_retention_min
+                ? { ...u, simulated_available: false, operational_state: "EN_TRASLADO" as const }
+                : { ...u, simulated_available: true, busy_until: null, operational_state: "RETORNANDO" as const }
               : u
           ),
         };
@@ -420,6 +428,53 @@ export default function SimulationPage() {
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
     },
   });
+
+  const reclassifyMutation = useMutation({
+    mutationFn: ({
+      serviceId,
+      newUrgency,
+      origin,
+    }: {
+      serviceId: string;
+      newUrgency: string;
+      origin: "RECLASIFICACION_TELEFONICA" | "RECLASIFICACION_EN_SITIO";
+    }) => coreApi.reclassifySimulationService(serviceId, { new_urgency_level: newUrgency, origin }),
+    onSuccess: (res) => {
+      setSimNotice(
+        `Regla R07: ${res.service_id} reclasificado ${res.previous_urgency_level} → ${res.urgency_level} (${res.manchester_scale}).`
+      );
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+    },
+  });
+
+  const divertMutation = useMutation({
+    mutationFn: coreApi.divertSimulationUnit,
+    onSuccess: (res) => {
+      setSimNotice(
+        `Regla R06: ${res.unit_id} desviada a ${res.target_service_id}; ${res.returned_service_id} volvió a cola.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["decisions"] });
+    },
+  });
+
+  const divertableEnRoute = useMemo(
+    () =>
+      activeRequests.filter(
+        (r) =>
+          r.status === "DISPATCHED" &&
+          !r.arrival_datetime &&
+          Boolean(r.assigned_unit_id) &&
+          (r.urgency_level === "03" || r.urgency_level === "06")
+      ),
+    [activeRequests]
+  );
+
+  const simNowMs = stateQuery.data?.current_sim_datetime
+    ? new Date(stateQuery.data.current_sim_datetime).getTime()
+    : null;
 
   const selectedUnit: SimUnit | undefined = units.find((u) => u.unit_id === selectedUnitId);
   const selectedPos = selectedUnitId ? liveMap[selectedUnitId] : undefined;
@@ -613,7 +668,29 @@ export default function SimulationPage() {
               </h2>
             </div>
 
-            <ErrorAlert error={evalMutation.error || dispatchMutation.error || completeMutation.error || advanceMutation.error} />
+            <ErrorAlert
+              error={
+                evalMutation.error ||
+                dispatchMutation.error ||
+                completeMutation.error ||
+                advanceMutation.error ||
+                reclassifyMutation.error ||
+                divertMutation.error
+              }
+            />
+
+            {simNotice && (
+              <div className="mb-2 flex items-center justify-between gap-2 rounded border border-cyan-500/40 bg-cyan-500/10 px-2.5 py-1.5 text-[11px] text-cyan-100">
+                <span>{simNotice}</span>
+                <button
+                  type="button"
+                  onClick={() => setSimNotice(null)}
+                  className="text-slate-300 hover:text-white"
+                >
+                  ×
+                </button>
+              </div>
+            )}
 
             <div className="max-h-[260px] space-y-2 overflow-y-auto pr-1">
               {activeRequests.length === 0 && (
@@ -631,20 +708,50 @@ export default function SimulationPage() {
                     key={r.service_id}
                     className="rounded border border-slate-800 bg-slate-950/70 p-2.5 text-xs"
                   >
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-1">
                       <span className="font-mono font-bold text-white">{r.service_id}</span>
-                      <span
-                        className={`rounded border px-1.5 py-0.5 font-mono text-[10px] ${
-                          URGENCY_BADGE[r.urgency_level] ?? "border-slate-600 text-slate-300"
-                        }`}
-                      >
-                        {r.urgency_level} ·{" "}
-                        {r.status === "DISPATCHED"
-                          ? r.arrival_datetime
-                            ? "EN_ATENCION"
-                            : "EN_RUTA"
-                          : r.status}
-                      </span>
+                      <div className="flex items-center gap-1">
+                        {r.status === "PENDING" &&
+                          (r.urgency_level === "01" || r.urgency_level === "02") &&
+                          simNowMs !== null &&
+                          (simNowMs - new Date(r.request_datetime).getTime()) / 60_000 > 2 && (
+                            <span className="animate-pulse rounded border border-rose-500/60 bg-rose-500/20 px-1 py-0.5 font-mono text-[9px] font-bold text-rose-200">
+                              R02 &gt;2m
+                            </span>
+                          )}
+                        <select
+                          aria-label={`Reclasificar ${r.service_id} (R07)`}
+                          title="Regla R07: Reclasificar urgencia EMI"
+                          value={r.urgency_level}
+                          disabled={reclassifyMutation.isPending}
+                          onChange={(e) =>
+                            reclassifyMutation.mutate({
+                              serviceId: r.service_id,
+                              newUrgency: e.target.value,
+                              origin:
+                                r.status === "PENDING"
+                                  ? "RECLASIFICACION_TELEFONICA"
+                                  : "RECLASIFICACION_EN_SITIO",
+                            })
+                          }
+                          className={`rounded border bg-slate-950 px-1 py-0.5 font-mono text-[10px] ${
+                            URGENCY_BADGE[r.urgency_level] ?? "border-slate-600 text-slate-300"
+                          }`}
+                        >
+                          {["01", "02", "07", "03", "06"].map((code) => (
+                            <option key={code} value={code} className="bg-slate-900 text-slate-100">
+                              {code}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="font-mono text-[10px] text-slate-300">
+                          {r.status === "DISPATCHED"
+                            ? r.arrival_datetime
+                              ? "EN_ATENCION"
+                              : "EN_RUTA"
+                            : r.status}
+                        </span>
+                      </div>
                     </div>
                     <div className="mt-1 text-slate-300">
                       {r.service_type} · <span className="font-mono">{r.zone_id}</span>
@@ -660,6 +767,37 @@ export default function SimulationPage() {
                           <Navigation className="h-3 w-3" />
                           Evaluar con GPS vivo
                         </button>
+                        {(r.urgency_level === "01" || r.urgency_level === "02") &&
+                          divertableEnRoute.length > 0 &&
+                          (() => {
+                            const best = divertableEnRoute
+                              .map((dr) => {
+                                const uid = dr.assigned_unit_id!;
+                                const p = liveMap[uid];
+                                const uObj = units.find((u) => u.unit_id === uid);
+                                const lat = p?.lat ?? uObj?.lat ?? dr.lat;
+                                const lon = p?.lon ?? uObj?.lon ?? dr.lon;
+                                return { uid, km: haversineKm(lat, lon, r.lat, r.lon) };
+                              })
+                              .sort((a, b) => a.km - b.km)[0];
+                            if (!best || best.km > 8) return null;
+                            return (
+                              <button
+                                type="button"
+                                disabled={divertMutation.isPending}
+                                onClick={() =>
+                                  divertMutation.mutate({
+                                    unit_id: best.uid,
+                                    target_service_id: r.service_id,
+                                    dispatcher_id: dispatcherId,
+                                  })
+                                }
+                                className="rounded border border-amber-500/50 bg-amber-500/15 px-2 py-1 text-[11px] font-semibold text-amber-200 hover:bg-amber-500/25"
+                              >
+                                Desviar {best.uid} (R06 · {best.km.toFixed(1)} km)
+                              </button>
+                            );
+                          })()}
                         {(r.urgency_level === "06" || r.urgency_level === "03") && (
                           <button
                             type="button"
@@ -777,6 +915,7 @@ export default function SimulationPage() {
                       <div className="mt-1 flex justify-between text-[11px] text-slate-400">
                         <span>
                           Dist: {(liveKm ?? 0).toFixed(2)} km · Score {c.score.toFixed(1)}
+                          {c.paired_unit_id ? ` · + ${c.paired_unit_id}` : ""}
                         </span>
                         <span>
                           ${(c.estimated_cost ?? 0).toLocaleString("es-CO")}

@@ -13,6 +13,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.domain.enums import ServiceStatus
 from app.domain.geo import haversine_km
 from app.domain.temporal import utcnow
+from app.models.decision import DispatchDecision
 from app.models.raw import (
     RawBase,
     RawCareCenter,
@@ -26,9 +27,13 @@ from app.schemas.simulation import (
     ArriveServiceOut,
     CompleteServiceIn,
     CompleteServiceOut,
+    DivertUnitIn,
+    DivertUnitOut,
     GenerateRequestsOut,
     PositionsBatchIn,
     PositionsBatchOut,
+    ReclassifyServiceIn,
+    ReclassifyServiceOut,
     SimBaseOut,
     SimCareCenterOut,
     SimRequestOut,
@@ -43,11 +48,15 @@ from app.services.simulation_service import (
     get_live_positions,
     get_or_create_simulation_session,
     get_units_busy_until,
+    historical_median_request_to_closure_min,
+    mark_unit_assigned_in_simulation,
     release_service_in_simulation,
     update_live_positions,
 )
 
 LEGACY_URGENCY_MAP = {"CRITICA": "01", "ALTA": "02", "MEDIA": "07", "BAJA": "03"}
+_URGENCY_ORDER = {"01": 0, "02": 1, "07": 2, "03": 3, "06": 4}
+BASE_STRETCHER_RETENTION_MIN = 18.0
 
 
 def _normalize_legacy_urgency(service: RawService) -> None:
@@ -174,6 +183,15 @@ def get_simulation_state(db: Session) -> SimulationStateOut:
                 lon=float(s_lon),
             )
         )
+
+    active_requests.sort(
+        key=lambda r: (
+            0 if r.status == ServiceStatus.PENDING else 1,
+            _URGENCY_ORDER.get(r.urgency_level, 9),
+            r.request_datetime,
+            r.service_id,
+        )
+    )
 
     day_type, traffic_factor = _traffic_for_dt(db, ref_dt)
     care_centers = [
@@ -333,6 +351,7 @@ def complete_service_in_simulation(
         service.required_transfer = False
 
     released_uid = service.assigned_unit_id
+    retention_min: int | None = None
     if released_uid:
         release_service_in_simulation(db, released_uid, service.service_id)
         if c_state in ("ATENDIDO_EN_SITIO", "TRASLADADO"):
@@ -351,6 +370,17 @@ def complete_service_in_simulation(
                         }
                     },
                 )
+        # Regla D08: retención de camilla en urgencias cuando la ambulancia traslada a clínica.
+        if c_state == "TRASLADADO":
+            _, tf = _traffic_for_dt(db, closure_dt)
+            retention_min = max(15, round(BASE_STRETCHER_RETENTION_MIN * tf))
+            mark_unit_assigned_in_simulation(
+                db,
+                unit_id=released_uid,
+                service_id=f"RETENCION:{service.service_id}",
+                start_dt=closure_dt,
+                duration_min=float(retention_min),
+            )
 
     record_audit_event(
         db,
@@ -361,6 +391,7 @@ def complete_service_in_simulation(
             "closure_state": c_state,
             "destination_center": dest_center_name,
             "released_unit_id": released_uid,
+            "stretcher_retention_min": retention_min,
             "closure_datetime": closure_dt.isoformat(),
             "zone_id": target_zone_id,
         },
@@ -372,7 +403,142 @@ def complete_service_in_simulation(
         closure_state=c_state,
         destination_center=dest_center_name,
         released_unit_id=released_uid,
+        stretcher_retention_min=retention_min,
         closure_datetime=closure_dt,
+    )
+
+
+def reclassify_service_in_simulation(
+    db: Session,
+    service_id: str,
+    payload: ReclassifyServiceIn,
+) -> ReclassifyServiceOut:
+    """Regla R07: reclasificación telefónica (en espera) o en sitio (atención)."""
+    service = db.get(RawService, service_id, with_for_update=True, populate_existing=True)
+    if service is None:
+        raise ResourceNotFoundError("Service request", service_id)
+    if service.status not in (ServiceStatus.PENDING, ServiceStatus.DISPATCHED):
+        raise ConflictError(
+            f"Solo servicios activos pueden reclasificarse (actual: {service.status}).",
+            code="SERVICE_NOT_ACTIVE",
+        )
+    prev_urg = service.urgency_level
+    new_urg = payload.new_urgency_level
+    new_manchester = _MANCHESTER_BY_URG.get(new_urg, "VERDE")
+    service.urgency_level = new_urg
+    service.manchester_scale = new_manchester
+    record_audit_event(
+        db,
+        event_type="SERVICE_RECLASSIFIED_IN_SIMULATION",
+        entity_type="service",
+        entity_id=service.service_id,
+        payload={
+            "previous_urgency_level": prev_urg,
+            "new_urgency_level": new_urg,
+            "manchester_scale": new_manchester,
+            "origin": payload.origin,
+        },
+    )
+    db.commit()
+    return ReclassifyServiceOut(
+        service_id=service.service_id,
+        previous_urgency_level=prev_urg,
+        urgency_level=new_urg,
+        manchester_scale=new_manchester,
+        origin=payload.origin,
+    )
+
+
+def divert_unit_in_simulation(db: Session, payload: DivertUnitIn) -> DivertUnitOut:
+    """Regla R06: desviar móvil EN_RUTA (03/06) a un 01/02 cercano; el 03/06 vuelve a cola."""
+    target = db.get(
+        RawService, payload.target_service_id, with_for_update=True, populate_existing=True
+    )
+    if target is None:
+        raise ResourceNotFoundError("Service request", payload.target_service_id)
+    if target.status != ServiceStatus.PENDING or target.urgency_level not in ("01", "02"):
+        raise ConflictError(
+            "Regla R06 aplica solo a solicitudes PENDING de urgencia 01 o 02.",
+            code="INVALID_R06_TARGET",
+        )
+
+    original = (
+        db.execute(
+            select(RawService)
+            .where(
+                RawService.status == ServiceStatus.DISPATCHED,
+                RawService.assigned_unit_id == payload.unit_id,
+                RawService.arrival_datetime.is_(None),
+                RawService.urgency_level.in_(("03", "06")),
+            )
+            .with_for_update()
+        )
+        .scalars()
+        .first()
+    )
+    if original is None:
+        raise ConflictError(
+            f"La móvil {payload.unit_id} no está EN_RUTA hacia un servicio 03/06.",
+            code="UNIT_NOT_DIVERTABLE_R06",
+        )
+
+    sim = get_or_create_simulation_session(db, for_update=True)
+    now_sim = max(sim.current_sim_datetime, target.request_datetime)
+
+    # 1. Devolver el servicio 03/06 original a la cola PENDING con su prioridad
+    release_service_in_simulation(db, payload.unit_id, original.service_id)
+    original.status = ServiceStatus.PENDING
+    original.assigned_unit_id = None
+    original.assignment_datetime = None
+
+    # 2. Asignar la móvil desviada al servicio 01/02 y registrar decisión humana
+    _normalize_legacy_urgency(target)
+    target.status = ServiceStatus.DISPATCHED
+    target.assigned_unit_id = payload.unit_id
+    target.assignment_datetime = now_sim
+
+    occ_min = historical_median_request_to_closure_min(db, target.service_type)
+    mark_unit_assigned_in_simulation(
+        db,
+        unit_id=payload.unit_id,
+        service_id=target.service_id,
+        start_dt=now_sim,
+        duration_min=occ_min,
+    )
+
+    decision_id = str(uuid.uuid4())
+    db.add(
+        DispatchDecision(
+            decision_id=decision_id,
+            service_id=target.service_id,
+            recommendation_id=None,
+            recommended_unit_id=payload.unit_id,
+            assigned_unit_id=payload.unit_id,
+            accepted=True,
+            rejection_reason=f"Desvío en ruta R06 desde {original.service_id}",
+            dispatcher_id=payload.dispatcher_id,
+            decided_at=utcnow(),
+            eligibility_override_json=["R06_EN_ROUTE_DIVERSION"],
+        )
+    )
+    record_audit_event(
+        db,
+        event_type="UNIT_DIVERTED_R06",
+        entity_type="service",
+        entity_id=target.service_id,
+        payload={
+            "unit_id": payload.unit_id,
+            "returned_service_id": original.service_id,
+            "dispatcher_id": payload.dispatcher_id,
+            "decision_id": decision_id,
+        },
+    )
+    db.commit()
+    return DivertUnitOut(
+        unit_id=payload.unit_id,
+        target_service_id=target.service_id,
+        returned_service_id=original.service_id,
+        decision_id=decision_id,
     )
 
 

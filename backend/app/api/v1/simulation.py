@@ -10,19 +10,25 @@ from app.schemas.simulation import (
     ArriveServiceOut,
     CompleteServiceIn,
     CompleteServiceOut,
+    DivertUnitIn,
+    DivertUnitOut,
     GenerateRequestsIn,
     GenerateRequestsOut,
     PositionsBatchIn,
     PositionsBatchOut,
+    ReclassifyServiceIn,
+    ReclassifyServiceOut,
     SimulationStateOut,
 )
 from app.services.simulation_control_service import (
     advance_simulation_clock,
     arrive_service_in_simulation,
     complete_service_in_simulation,
+    divert_unit_in_simulation,
     generate_random_requests,
     get_simulation_state,
     ingest_live_positions,
+    reclassify_service_in_simulation,
 )
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
@@ -64,3 +70,20 @@ def simulation_generate_requests(
     payload: Annotated[GenerateRequestsIn | None, Body()] = None,
 ) -> GenerateRequestsOut:
     return generate_random_requests(db, (payload.count if payload else 4))
+
+
+@router.post("/reclassify/{service_id}", response_model=ReclassifyServiceOut)
+def simulation_reclassify_service(
+    service_id: str,
+    payload: ReclassifyServiceIn,
+    db: DbDep,
+) -> ReclassifyServiceOut:
+    return reclassify_service_in_simulation(db, service_id, payload)
+
+
+@router.post("/divert", response_model=DivertUnitOut)
+def simulation_divert_unit(
+    payload: DivertUnitIn,
+    db: DbDep,
+) -> DivertUnitOut:
+    return divert_unit_in_simulation(db, payload)
