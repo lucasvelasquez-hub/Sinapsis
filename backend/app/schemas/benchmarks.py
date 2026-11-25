@@ -94,3 +94,59 @@ class ScenarioEvaluationOut(BaseModel):
     sla_core_pct: float | None = None
     sla_ref_pct: float | None = None
     events_applied: int = 0
+
+
+class ScenarioBatchItemOut(BaseModel):
+    id_escenario: str
+    nombre: str
+    objetivo_aprendizaje: str
+    n_solicitudes: int
+    events_applied: int
+    unit_matches: int
+    type_matches: int
+    unit_match_rate: float
+    type_match_rate: float
+    paired_match_rate: float | None = None
+    avg_eta_core_min: float | None = None
+    avg_eta_ref_min: float | None = None
+    eta_delta_min: float | None = None
+    sla_core_pct: float
+    sla_ref_pct: float
+    avg_cost_core: float | None = None
+    avg_cost_ref: float | None = None
+    avg_dist_core_km: float | None = None
+    avg_dist_ref_km: float | None = None
+
+
+class AllScenariosTotalsOut(BaseModel):
+    total_scenarios: int
+    total_requests: int
+    unit_matches: int
+    type_matches: int
+    unit_match_rate: float
+    type_match_rate: float
+    avg_eta_core_min: float | None = None
+    avg_eta_ref_min: float | None = None
+    eta_delta_min: float | None = None
+    sla_core_pct: float
+    sla_ref_pct: float
+    sla_vital_core_pct: float
+    sla_vital_ref_pct: float
+    avg_cost_core: float | None = None
+    avg_cost_ref: float | None = None
+    avg_dist_core_km: float | None = None
+    avg_dist_ref_km: float | None = None
+    discrepancy_counts: dict[str, int]
+    r01_incompatible_count: int
+    r03_vital_without_ambulance_or_pair: int
+    r04_stabilization_count: int
+    r06_diversion_detected_count: int
+    d03_green_uncovered_warnings: int
+    d05_tam_on_02_warnings: int
+    d06_transfer_tab_activations: int
+
+
+class AllScenariosEvaluationOut(BaseModel):
+    provenance: Literal["SIMULADO"] = "SIMULADO"
+    scenarios: list[ScenarioBatchItemOut]
+    totals: AllScenariosTotalsOut

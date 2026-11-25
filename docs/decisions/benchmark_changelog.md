@@ -54,3 +54,13 @@ Registro acumulado paso a paso de la medición de CORE frente a `06_escenarios_r
 
 ### Conclusión técnica de la Task 3
 `CORE_ACTUAL` supera a la referencia humana en ETA (−2.5 min / −13.7%), SLA global (+3.7 pp), SLA vital (+10.0 pp), distancia (−14.4%, cumpliendo la meta KPI-07 de −10%), costo (−8.3%) y balanceo de carga (CV 0.522 vs. 0.589), mientras supera a `GREEDY_ETA` en ETA promedio (15.8m vs. 16.4m) y gobernanza clínica (77.6% vs. 41.4% de coincidencia de tipo, con 0 violaciones R01/R03/D03).
+
+---
+
+## Iteración 4 — Task 4: Endpoint Consolidado (`evaluate-all`)
+- **Fecha:** 2026-11-25
+- **Alcance:**
+  - Nuevo endpoint `POST /api/v1/benchmarks/scenarios/evaluate-all` (`AllScenariosEvaluationOut`, procedencia `SIMULADO`) que evalúa los 14 escenarios en bloque con scorecard por escenario, totales agregados (ETA, SLA global y vital, distancia, costo), categorías de discrepancia y auditoría R01–R06 / D03–D06.
+  - Se preserva la frontera `OBSERVADO` vs. `SIMULADO` en `GET /api/v1/benchmarks/kpis`: los 6 KPIs determinados por el motor (`KPI-01`, `KPI-02`, `KPI-03`, `KPI-07`, `KPI-08`, `KPI-10`) muestran `SIMULADO`, mientras que los 6 KPIs de reloj humano / guion de evento (`KPI-04`, `KPI-05`, `KPI-06`, `KPI-09`, `KPI-11`, `KPI-12`) se mantienen estrictamente `OBSERVADO` sobre los 10.402 servicios históricos.
+  - Nuevos tests de API en `backend/tests/test_benchmarks_api.py`.
+

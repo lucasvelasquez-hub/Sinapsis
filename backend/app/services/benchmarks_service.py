@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
@@ -13,11 +14,15 @@ import openpyxl
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.raw import RawResponseTarget, RawService, RawUnit
+from app.domain.assignment_policy import WARN_D03, WARN_D05, WARN_D06
+from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit
 from app.schemas.benchmarks import (
+    AllScenariosEvaluationOut,
+    AllScenariosTotalsOut,
     BaselineByClassificationOut,
     KpiDefinitionOut,
     KpisOverviewOut,
+    ScenarioBatchItemOut,
     ScenarioEvaluationOut,
     ScenarioRequestEvalOut,
     ScenarioSummaryOut,
@@ -373,3 +378,207 @@ def evaluate_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
     from app.services.scenario_replay import replay_scenario
 
     return replay_scenario(db, scenario_id)
+
+
+def _classify_request(item: ScenarioRequestEvalOut) -> str:
+    if item.recommended_unit_id is None:
+        return "SIN_MOVIL"
+    if item.matches_reference_unit:
+        return "MATCH_EXACTO"
+    core_better = (
+        item.estimated_travel_min is None
+        or item.reference_eta_min is None
+        or item.estimated_travel_min <= item.reference_eta_min
+    )
+    if item.matches_reference_type:
+        return "MATCH_TIPO_MEJOR_ETA" if core_better else "MATCH_TIPO_PEOR_ETA"
+    return "DIFF_TIPO_MEJOR_ETA" if core_better else "DIFF_TIPO_PEOR_ETA"
+
+
+def _avg_opt(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return round(sum(values) / len(values), 2)
+
+
+def _pct_opt(hits: int, total: int) -> float:
+    if total <= 0:
+        return 0.0
+    return round(100.0 * hits / total, 1)
+
+
+def evaluate_all_scenarios(db: Session) -> AllScenariosEvaluationOut:
+    from app.services.scenario_replay import replay_scenario
+
+    rules_by_urg: dict[str, set[str]] = {}
+    for rule in db.execute(
+        select(RawServiceRule).where(RawServiceRule.eligible.is_(True))
+    ).scalars():
+        rules_by_urg.setdefault(rule.urgency_level, set()).add(rule.unit_type)
+
+    items: list[ScenarioBatchItemOut] = []
+    discrepancy_counts: Counter[str] = Counter(
+        {
+            "MATCH_EXACTO": 0,
+            "MATCH_TIPO_MEJOR_ETA": 0,
+            "MATCH_TIPO_PEOR_ETA": 0,
+            "DIFF_TIPO_MEJOR_ETA": 0,
+            "DIFF_TIPO_PEOR_ETA": 0,
+            "SIN_MOVIL": 0,
+        }
+    )
+
+    all_eta_core: list[float] = []
+    all_eta_ref: list[float] = []
+    all_cost_core: list[float] = []
+    all_cost_ref: list[float] = []
+    all_dist_core: list[float] = []
+    all_dist_ref: list[float] = []
+    tot_req = 0
+    tot_unit = 0
+    tot_type = 0
+    tot_sla_core_hits = 0
+    tot_sla_core_n = 0
+    tot_sla_ref_hits = 0
+    tot_sla_ref_n = 0
+    tot_vital_core_hits = 0
+    tot_vital_core_n = 0
+    tot_vital_ref_hits = 0
+    tot_vital_ref_n = 0
+    r01_incompat = 0
+    r03_vital_no_amb = 0
+    r04_stab = 0
+    r06_divert = 0
+    d03_green = 0
+    d05_tam_02 = 0
+    d06_tab_07 = 0
+
+    for sc in list_scenarios():
+        ev = replay_scenario(db, sc.id_escenario)
+        sc_cost_core: list[float] = []
+        sc_cost_ref: list[float] = []
+        sc_dist_core: list[float] = []
+        sc_dist_ref: list[float] = []
+        sc_unit = 0
+        sc_type = 0
+
+        for r in ev.results:
+            tot_req += 1
+            discrepancy_counts[_classify_request(r)] += 1
+            if r.matches_reference_unit:
+                sc_unit += 1
+                tot_unit += 1
+            if r.matches_reference_type:
+                sc_type += 1
+                tot_type += 1
+            if r.estimated_travel_min is not None:
+                all_eta_core.append(float(r.estimated_travel_min))
+            if r.reference_eta_min is not None:
+                all_eta_ref.append(float(r.reference_eta_min))
+            if r.estimated_cost is not None:
+                sc_cost_core.append(float(r.estimated_cost))
+                all_cost_core.append(float(r.estimated_cost))
+            if r.reference_estimated_cost is not None:
+                sc_cost_ref.append(float(r.reference_estimated_cost))
+                all_cost_ref.append(float(r.reference_estimated_cost))
+            if r.distance_km is not None:
+                sc_dist_core.append(float(r.distance_km))
+                all_dist_core.append(float(r.distance_km))
+            if r.reference_distance_km is not None:
+                sc_dist_ref.append(float(r.reference_distance_km))
+                all_dist_ref.append(float(r.reference_distance_km))
+
+            urg = r.clasificacion_inicial
+            if r.sla_met_core is not None:
+                tot_sla_core_n += 1
+                if r.sla_met_core:
+                    tot_sla_core_hits += 1
+                if urg in ("01", "02"):
+                    tot_vital_core_n += 1
+                    if r.sla_met_core:
+                        tot_vital_core_hits += 1
+            if r.sla_met_ref is not None:
+                tot_sla_ref_n += 1
+                if r.sla_met_ref:
+                    tot_sla_ref_hits += 1
+                if urg in ("01", "02"):
+                    tot_vital_ref_n += 1
+                    if r.sla_met_ref:
+                        tot_vital_ref_hits += 1
+
+            allowed = rules_by_urg.get(urg, set())
+            if r.recommended_unit_type and r.recommended_unit_type not in allowed:
+                r01_incompat += 1
+            if urg in ("01", "02") and r.recommended_unit_type == "VMD" and not r.paired_unit_id:
+                r03_vital_no_amb += 1
+            if r.recommended_role == "PRIMER_RESPONDIENTE_ESTABILIZACION":
+                r04_stab += 1
+            if any(w.startswith("Regla R06:") for w in (*r.factors, *r.warnings)):
+                r06_divert += 1
+            if urg in ("07", "03", "06") and WARN_D03 in r.warnings:
+                d03_green += 1
+            if urg == "02" and WARN_D05 in r.warnings:
+                d05_tam_02 += 1
+            if urg == "07" and WARN_D06 in r.warnings:
+                d06_tab_07 += 1
+
+        items.append(
+            ScenarioBatchItemOut(
+                id_escenario=sc.id_escenario,
+                nombre=sc.nombre,
+                objetivo_aprendizaje=sc.objetivo_aprendizaje,
+                n_solicitudes=len(ev.results),
+                events_applied=ev.events_applied,
+                unit_matches=sc_unit,
+                type_matches=sc_type,
+                unit_match_rate=ev.unit_match_rate,
+                type_match_rate=ev.type_match_rate,
+                paired_match_rate=ev.paired_match_rate,
+                avg_eta_core_min=ev.avg_eta_core_min,
+                avg_eta_ref_min=ev.avg_eta_ref_min,
+                eta_delta_min=ev.eta_delta_min,
+                sla_core_pct=ev.sla_core_pct or 0.0,
+                sla_ref_pct=ev.sla_ref_pct or 0.0,
+                avg_cost_core=_avg_opt(sc_cost_core),
+                avg_cost_ref=_avg_opt(sc_cost_ref),
+                avg_dist_core_km=_avg_opt(sc_dist_core),
+                avg_dist_ref_km=_avg_opt(sc_dist_ref),
+            )
+        )
+
+    avg_core = _avg_opt(all_eta_core)
+    avg_ref = _avg_opt(all_eta_ref)
+    eta_delta = (
+        round(avg_core - avg_ref, 2) if avg_core is not None and avg_ref is not None else None
+    )
+    return AllScenariosEvaluationOut(
+        provenance="SIMULADO",
+        scenarios=items,
+        totals=AllScenariosTotalsOut(
+            total_scenarios=len(items),
+            total_requests=tot_req,
+            unit_matches=tot_unit,
+            type_matches=tot_type,
+            unit_match_rate=round(tot_unit / max(1, tot_req), 4),
+            type_match_rate=round(tot_type / max(1, tot_req), 4),
+            avg_eta_core_min=avg_core,
+            avg_eta_ref_min=avg_ref,
+            eta_delta_min=eta_delta,
+            sla_core_pct=_pct_opt(tot_sla_core_hits, tot_sla_core_n),
+            sla_ref_pct=_pct_opt(tot_sla_ref_hits, tot_sla_ref_n),
+            sla_vital_core_pct=_pct_opt(tot_vital_core_hits, tot_vital_core_n),
+            sla_vital_ref_pct=_pct_opt(tot_vital_ref_hits, tot_vital_ref_n),
+            avg_cost_core=_avg_opt(all_cost_core),
+            avg_cost_ref=_avg_opt(all_cost_ref),
+            avg_dist_core_km=_avg_opt(all_dist_core),
+            avg_dist_ref_km=_avg_opt(all_dist_ref),
+            discrepancy_counts=dict(discrepancy_counts),
+            r01_incompatible_count=r01_incompat,
+            r03_vital_without_ambulance_or_pair=r03_vital_no_amb,
+            r04_stabilization_count=r04_stab,
+            r06_diversion_detected_count=r06_divert,
+            d03_green_uncovered_warnings=d03_green,
+            d05_tam_on_02_warnings=d05_tam_02,
+            d06_transfer_tab_activations=d06_tab_07,
+        ),
+    )

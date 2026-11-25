@@ -160,18 +160,15 @@ Medición real contra DB local (`localhost:5433`, dataset EMI completo) con el `
     - `provenance`: `"SIMULADO"`.
   - Completar KPIs simulados faltantes en `GET /api/v1/benchmarks/kpis`: añadir `KPI-05` (utilización simulada por tipo), `KPI-06` (CV de carga entre móviles en los escenarios), `KPI-09` (tasa de cancelaciones en escenarios) y `KPI-12` (tasa de reclasificaciones en escenarios), manteniendo `OBSERVADO` en `valor_actual_db` y `SIMULADO` en `valor_simulado`.
 
-- [ ] **Step 1: Write failing API tests**
-  En `backend/tests/test_benchmarks_api.py`, agregar:
-  - `test_evaluate_all_scenarios_returns_14_summaries_and_totals`
-  - `test_kpis_overview_includes_simulated_coverage_and_deltas`
-- [ ] **Step 2: Run tests to verify failure**
-  Run: `cd backend && uv run pytest tests/test_benchmarks_api.py -v`
-- [ ] **Step 3: Implement schemas, service aggregation & router endpoint**
-  Extender `benchmarks.py` (schemas), `benchmarks_service.py` y `api/v1/benchmarks.py`.
-- [ ] **Step 4: Run full backend test suite & lint**
-  Run: `cd backend && uv run pytest -q && uv run ruff check . && uv run ruff format --check .`
-- [ ] **Step 5: Commit**
-  `feat(api): exponer evaluación consolidada de 14 escenarios`
+- [x] **Step 1: Write failing API tests**
+  Creado `backend/tests/test_benchmarks_api.py` (`test_evaluate_all_scenarios_returns_14_summaries_and_totals`, `test_kpis_overview_includes_extended_simulated_kpis`).
+- [x] **Step 2: Run tests to verify failure**
+  Confirmado 404 en `evaluate-all` y `KPI-05` faltante antes de implementar.
+- [x] **Step 3: Implement schemas, service aggregation & router endpoint**
+  Implementado `AllScenariosEvaluationOut`, `evaluate_all_scenarios(db)`, KPIs simulados `KPI-05/06/09/12` y `POST /api/v1/benchmarks/scenarios/evaluate-all`.
+- [x] **Step 4: Run full backend test suite & lint**
+- [x] **Step 5: Commit**
+  `feat(api): evaluación consolidada de 14 escenarios`
 
 ---
 
