@@ -24,6 +24,7 @@ export interface LivePos {
 }
 
 const DARK_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
+const LIGHT_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
 const UNIT_COLOR: Record<string, string> = {
   TAM: "#fb7185",
@@ -335,9 +336,10 @@ export default function AburraMap({
 
     maplibregl.setWorkerUrl("/maplibre-gl-worker.mjs");
 
+    const isLight = document.documentElement.dataset.contrast === "high";
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: DARK_VECTOR_STYLE,
+      style: isLight ? LIGHT_VECTOR_STYLE : DARK_VECTOR_STYLE,
       center: [-75.5812, 6.2442],
       zoom: 11.4,
       bearing: -90,
@@ -362,7 +364,7 @@ export default function AburraMap({
     zonePopupRef.current = zonePopup;
     markerPopupRef.current = markerPopup;
 
-    map.on("load", () => {
+    const attachCustomLayers = () => {
       loadedRef.current = true;
       const {
         zones: curZones,
@@ -374,7 +376,7 @@ export default function AburraMap({
         trafficFactor: curTraffic,
         focusPoint: curFocus,
       } = latestDataRef.current;
-      if (curFocus) {
+      if (curFocus && lastFocusKeyRef.current !== curFocus.key) {
         lastFocusKeyRef.current = curFocus.key;
         map.flyTo({
           center: [curFocus.lon, curFocus.lat],
@@ -386,54 +388,64 @@ export default function AburraMap({
       }
       const initialGeo = buildZonesGeoJson(curZones, curUnits, curLive, curMode, curTraffic);
 
-      map.addSource("sector-links", {
-        type: "geojson",
-        data: initialGeo.sectorLinks,
-      });
-      map.addLayer({
-        id: "sector-links-line",
-        type: "line",
-        source: "sector-links",
-        paint: {
-          "line-color": ["get", "color"],
-          "line-width": 1.2,
-          "line-opacity": 0.4,
-        },
-      });
+      if (!map.getSource("sector-links")) {
+        map.addSource("sector-links", {
+          type: "geojson",
+          data: initialGeo.sectorLinks,
+        });
+        map.addLayer({
+          id: "sector-links-line",
+          type: "line",
+          source: "sector-links",
+          paint: {
+            "line-color": ["get", "color"],
+            "line-width": 1.2,
+            "line-opacity": 0.4,
+          },
+        });
+      }
 
-      map.addSource("zones", {
-        type: "geojson",
-        data: initialGeo.zones,
-      });
-      map.addLayer({
-        id: "zones-circle",
-        type: "circle",
-        source: "zones",
-        paint: {
-          "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, 8, 12, 20, 14, 52],
-          "circle-color": ["get", "color"],
-          "circle-opacity": ["get", "fillOpacity"],
-          "circle-stroke-color": ["get", "color"],
-          "circle-stroke-width": 1,
-          "circle-stroke-opacity": 0.45,
-        },
-      });
+      if (!map.getSource("zones")) {
+        map.addSource("zones", {
+          type: "geojson",
+          data: initialGeo.zones,
+        });
+        map.addLayer({
+          id: "zones-circle",
+          type: "circle",
+          source: "zones",
+          paint: {
+            "circle-radius": ["interpolate", ["exponential", 2], ["zoom"], 10, 8, 12, 20, 14, 52],
+            "circle-color": ["get", "color"],
+            "circle-opacity": ["get", "fillOpacity"],
+            "circle-stroke-color": ["get", "color"],
+            "circle-stroke-width": 1,
+            "circle-stroke-opacity": 0.45,
+          },
+        });
+      }
 
-      map.addSource("routes", {
-        type: "geojson",
-        data: buildRoutesGeoJson(curReqs, curLive, curUnits, curBases),
-      });
-      map.addLayer({
-        id: "routes-line",
-        type: "line",
-        source: "routes",
-        paint: {
-          "line-color": ["coalesce", ["get", "color"], "#38bdf8"],
-          "line-width": 3,
-          "line-dasharray": [2, 2],
-          "line-opacity": 0.9,
-        },
-      });
+      if (!map.getSource("routes")) {
+        map.addSource("routes", {
+          type: "geojson",
+          data: buildRoutesGeoJson(curReqs, curLive, curUnits, curBases),
+        });
+        map.addLayer({
+          id: "routes-line",
+          type: "line",
+          source: "routes",
+          paint: {
+            "line-color": ["coalesce", ["get", "color"], "#38bdf8"],
+            "line-width": 3,
+            "line-dasharray": [2, 2],
+            "line-opacity": 0.9,
+          },
+        });
+      }
+    };
+
+    map.on("load", () => {
+      attachCustomLayers();
 
       map.on("mousemove", "zones-circle", (e) => {
         if (hoveredMarkerRef.current) return;
@@ -448,10 +460,28 @@ export default function AburraMap({
       });
     });
 
+    // Switch MapLibre base style live when High-Contrast (light) vs Dark Ops toggles
+    let activeLight = isLight;
+    const contrastObserver = new MutationObserver(() => {
+      const nextLight = document.documentElement.dataset.contrast === "high";
+      if (nextLight === activeLight) return;
+      activeLight = nextLight;
+      loadedRef.current = false;
+      map.setStyle(nextLight ? LIGHT_VECTOR_STYLE : DARK_VECTOR_STYLE);
+      map.once("style.load", () => {
+        attachCustomLayers();
+      });
+    });
+    contrastObserver.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["data-contrast"],
+    });
+
     mapRef.current = map;
 
     const unitMarkers = unitMarkersRef.current;
     return () => {
+      contrastObserver.disconnect();
       zonePopup.remove();
       markerPopup.remove();
       for (const m of staticMarkersRef.current) m.remove();

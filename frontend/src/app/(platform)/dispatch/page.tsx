@@ -508,7 +508,7 @@ export default function DispatchCenterPage() {
                 : "border-sky-500/35",
             )}
           >
-            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/80 bg-gradient-to-r from-sky-950/70 via-[#0b1b30] to-[#0a1626] px-4 py-3">
+            <div className="ops-rec-header flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/80 bg-gradient-to-r from-sky-950/70 via-[#0b1b30] to-[#0a1626] px-4 py-3">
               <div>
                 <h2 className="text-xs font-bold uppercase tracking-wider text-slate-50">
                   Recomendación CORE AI

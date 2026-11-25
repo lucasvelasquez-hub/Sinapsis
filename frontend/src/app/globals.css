@@ -22,30 +22,100 @@
 }
 
 :root[data-contrast="high"] {
-  --background: #000000;
-  --foreground: #ffffff;
-  --ops-bg: #000000;
-  --ops-surface: #0a0a0a;
-  --ops-surface-elevated: #141414;
-  --ops-border: #60a5fa;
-  --ops-accent: #38bdf8;
-  --ops-critical: #fb7185;
-  --scrollbar-thumb: #f8fafc;
-  --scrollbar-track: #000000;
+  color-scheme: light;
+  --background: #e9eef5;
+  --foreground: #0f172a;
+  --ops-bg: #e9eef5;
+  --ops-surface: #ffffff;
+  --ops-surface-elevated: #f8fafc;
+  --ops-border: #cbd5e1;
+  --ops-accent: #0284c7;
+  --ops-critical: #e11d48;
+  --scrollbar-thumb: #94a3b8;
+  --scrollbar-track: #e2e8f0;
 }
 
-:root[data-contrast="high"] body {
-  background: #000000;
-  color: #ffffff;
-}
-
+:root[data-contrast="high"] body,
 :root[data-contrast="high"] .ops-shell {
-  background-color: #000000 !important;
+  background-color: #e9eef5 !important;
+  color: #0f172a;
 }
 
-:root[data-contrast="high"] .ops-panel {
-  background-color: #0a0a0a !important;
-  border-color: rgba(96, 165, 250, 0.75) !important;
+:root[data-contrast="high"] main .ops-panel {
+  background-color: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a;
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+}
+
+:root[data-contrast="high"] main :where([class*="bg-[#06101d]"], [class*="bg-[#071120]"], [class*="bg-slate-950"], [class*="bg-slate-900"], [class*="bg-[#0a1626]"]):not(.ops-rec-header):not(.ops-panel) {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+}
+
+:root[data-contrast="high"] main .ops-rec-header {
+  background: linear-gradient(90deg, #07192f 0%, #0d2542 100%) !important;
+  color: #f8fafc !important;
+}
+
+:root[data-contrast="high"] main .ops-rec-header * {
+  color: #f8fafc;
+}
+
+:root[data-contrast="high"] main :where(.text-slate-50, .text-slate-100, .text-white):not(.ops-rec-header *):not(button[class*="bg-rose-600"]):not(button[class*="bg-sky-600"]):not(button[class*="bg-cyan-600"]):not(button[class*="bg-emerald-600"]) {
+  color: #0f172a !important;
+}
+
+:root[data-contrast="high"] main :where(.text-slate-200, .text-slate-300):not(.ops-rec-header *) {
+  color: #334155 !important;
+}
+
+:root[data-contrast="high"] main :where(.text-slate-400, .text-slate-500):not(.ops-rec-header *) {
+  color: #475569 !important;
+}
+
+:root[data-contrast="high"] main :where(.text-sky-200, .text-sky-300, .text-cyan-200, .text-cyan-300):not(.ops-rec-header *) {
+  color: #0369a1 !important;
+}
+
+:root[data-contrast="high"] main :where(.text-emerald-200, .text-emerald-300) {
+  color: #047857 !important;
+}
+
+:root[data-contrast="high"] main :where(.text-amber-100, .text-amber-200, .text-amber-300) {
+  color: #b45309 !important;
+}
+
+:root[data-contrast="high"] main :where(.text-rose-200, .text-rose-300) {
+  color: #be123c !important;
+}
+
+:root[data-contrast="high"] main :where([class*="border-slate-800"], [class*="border-slate-700"]) {
+  border-color: #cbd5e1 !important;
+}
+
+:root[data-contrast="high"] main :where([class*="divide-slate-800"]) > :not(:last-child) {
+  border-color: #e2e8f0 !important;
+}
+
+:root[data-contrast="high"] main thead {
+  background-color: #ffffff !important;
+}
+
+:root[data-contrast="high"] main input,
+:root[data-contrast="high"] main select {
+  background-color: #f8fafc !important;
+  border-color: #cbd5e1 !important;
+  color: #0f172a !important;
+}
+
+:root[data-contrast="high"] main [role="tab"][aria-selected="true"] {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+:root[data-contrast="high"] main [role="tab"][aria-selected="true"] * {
+  color: #ffffff !important;
 }
 
 body {

@@ -158,7 +158,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
       <aside
         aria-label="Navegación principal"
         className={cn(
-          "ops-panel flex shrink-0 flex-col border-r border-slate-800/90 bg-[#081322] transition-all duration-200",
+          "ops-sidebar flex shrink-0 flex-col border-r border-slate-800/90 bg-[#081322] text-slate-100 transition-all duration-200",
           sidebarCollapsed ? "w-0 overflow-hidden border-r-0 opacity-0" : "w-56 opacity-100"
         )}
       >
@@ -218,7 +218,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
 
       {/* Main Area */}
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="ops-panel flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-[#081322]/95 px-4 py-2">
+        <header className="ops-headbar flex min-h-14 shrink-0 flex-wrap items-center justify-between gap-2 border-b border-slate-800/90 bg-[#081322]/95 px-4 py-2 text-slate-100">
           {/* Left: Sidebar toggle + compact brand + Sim Clock */}
           <div className="flex flex-wrap items-center gap-2.5 text-xs">
             <button
