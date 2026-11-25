@@ -416,8 +416,8 @@ def score_candidates(
     )
 
 
-def retention_median_min(db: Session, center_name: str | None) -> tuple[float, str]:
-    """Mediana de llegada al destino → liberación, por centro. Menos de 5 usa la global."""
+def retention_samples(db: Session) -> tuple[dict[str, list[float]], list[float]]:
+    """Minutos llegada al destino → liberación, por centro y en total (consulta única)."""
     rows = db.execute(
         select(RawService.destination_center, RawService.assigned_units_json).where(
             RawService.assigned_units_json.is_not(None)
@@ -443,6 +443,12 @@ def retention_median_min(db: Session, center_name: str | None) -> tuple[float, s
             all_mins.append(minutes)
             if center:
                 by_center.setdefault(str(center), []).append(minutes)
+    return by_center, all_mins
+
+
+def retention_median_min(db: Session, center_name: str | None) -> tuple[float, str]:
+    """Mediana de llegada al destino → liberación, por centro. Menos de 5 usa la global."""
+    by_center, all_mins = retention_samples(db)
     global_med = float(median(all_mins)) if all_mins else 50.0
     sample = by_center.get(center_name or "", [])
     if center_name and len(sample) >= 5:

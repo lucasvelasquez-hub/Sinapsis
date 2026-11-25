@@ -296,6 +296,7 @@ def _rank_request(
     )
     top = ranked[0] if ranked else None
     ref_uid = ref.get("id_movil")
+    ref_candidate = next((c for c in ranked if ref_uid and c.unit.unit_id == ref_uid), None)
     ref_utype = ref.get("tipo_movil")
     factors = list(top.factors) if top else []
     warnings = list(top.warnings) if top else []
@@ -334,6 +335,8 @@ def _rank_request(
         reference_eta_min=float(ref["tiempo_estimado_llegada_min"])
         if ref.get("tiempo_estimado_llegada_min") is not None
         else None,
+        reference_distance_km=ref_candidate.distance_km if ref_candidate else None,
+        reference_estimated_cost=ref_candidate.estimated_cost if ref_candidate else None,
         reference_justification=str(ref["justificacion_despachador"])
         if ref.get("justificacion_despachador")
         else None,
