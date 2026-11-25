@@ -330,37 +330,41 @@ export default function DispatchCenterPage() {
               aria-labelledby="dispatch-tab-hybrid"
               className="flex flex-1 flex-col gap-3 lg:min-h-0"
             >
-              {/* Card 1: Mapa Táctico Geoespacial (siempre presente) */}
-              <div className="ops-panel shrink-0 space-y-2 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3">
-                <MapLayerLegendBar
-                  layerMode={layerMode}
-                  onChangeLayer={setLayerMode}
-                  compact
-                />
-                {simState ? (
-                  <AburraMap
-                    zones={simState.zones}
-                    bases={simState.bases}
-                    careCenters={simState.care_centers}
-                    units={simState.units}
-                    activeRequests={focusedRequests}
-                    liveMap={tacticalLiveMap}
+              {/* Card 1: Mapa Táctico Geoespacial (siempre presente, altura ampliada) */}
+              <div className="ops-panel flex flex-[3] min-h-[360px] flex-col gap-2 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3 lg:min-h-0">
+                <div className="shrink-0">
+                  <MapLayerLegendBar
                     layerMode={layerMode}
-                    trafficFactor={simState.traffic_factor ?? 1.0}
-                    selectedUnitId={effectiveMapUnitId}
-                    onSelectUnit={handleSelectMapUnit}
-                    focusPoint={mapFocusPoint}
-                    heightClass="h-[250px]"
+                    onChangeLayer={setLayerMode}
+                    compact
                   />
+                </div>
+                {simState ? (
+                  <div className="min-h-[320px] flex-1">
+                    <AburraMap
+                      zones={simState.zones}
+                      bases={simState.bases}
+                      careCenters={simState.care_centers}
+                      units={simState.units}
+                      activeRequests={focusedRequests}
+                      liveMap={tacticalLiveMap}
+                      layerMode={layerMode}
+                      trafficFactor={simState.traffic_factor ?? 1.0}
+                      selectedUnitId={effectiveMapUnitId}
+                      onSelectUnit={handleSelectMapUnit}
+                      focusPoint={mapFocusPoint}
+                      heightClass="h-full min-h-[320px]"
+                    />
+                  </div>
                 ) : (
-                  <div className="flex h-[250px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
+                  <div className="flex min-h-[320px] flex-1 items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
                     Cargando estado geoespacial…
                   </div>
                 )}
               </div>
 
               {/* Card 2: Unidades Elegibles */}
-              <div className="ops-panel core-scroller flex-1 overflow-y-auto rounded-lg border border-slate-800/90 bg-[#0a1626] p-4 lg:min-h-0">
+              <div className="ops-panel core-scroller flex-[2] min-h-[180px] overflow-y-auto rounded-lg border border-slate-800/90 bg-[#0a1626] p-4 lg:min-h-0">
                 {detail ? (
                   <>
                     <QueryErrorAlert
