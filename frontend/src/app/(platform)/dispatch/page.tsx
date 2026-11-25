@@ -211,7 +211,17 @@ export default function DispatchCenterPage() {
 
   const mapFocusPoint = useMemo(() => {
     if (!detail) return null;
+    const req = focusedRequests.find((r) => r.service_id === detail.service_id);
     if (detail.assigned_unit_id) {
+      // Si ya está EN_ATENCION, la móvil está junto al paciente.
+      if (detail.arrival_datetime && req) {
+        return {
+          lat: req.lat,
+          lon: req.lon,
+          zoom: 14.5,
+          key: `${detail.service_id}:unit:${detail.assigned_unit_id}`,
+        };
+      }
       const live = tacticalLiveMap[detail.assigned_unit_id];
       const unit = simUnits.find((u) => u.unit_id === detail.assigned_unit_id);
       const lat = live?.lat ?? unit?.lat;
@@ -225,7 +235,6 @@ export default function DispatchCenterPage() {
         };
       }
     }
-    const req = focusedRequests.find((r) => r.service_id === detail.service_id);
     if (req) {
       return {
         lat: req.lat,

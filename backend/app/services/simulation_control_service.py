@@ -145,6 +145,13 @@ def get_simulation_state(db: Session) -> SimulationStateOut:
             op_state = "FUERA_SERVICIO"
         elif assigned_srv is not None:
             op_state = "EN_ATENCION" if assigned_srv.arrival_datetime is not None else "EN_RUTA"
+            if op_state == "EN_ATENCION":
+                srv_zone = zones_by_id.get(assigned_srv.zone_id)
+                z_id = assigned_srv.zone_id
+                if assigned_srv.lat_approx is not None and assigned_srv.lon_approx is not None:
+                    lat, lon = float(assigned_srv.lat_approx), float(assigned_srv.lon_approx)
+                elif srv_zone is not None:
+                    lat, lon = float(srv_zone.lat_centroid), float(srv_zone.lon_centroid)
         elif not is_available:
             op_state = "EN_TRASLADO"
         elif base is not None and z_id is not None and z_id != base.zone_id:
@@ -276,6 +283,13 @@ def arrive_service_in_simulation(db: Session, service_id: str) -> ArriveServiceO
         if service.assigned_unit_id:
             update_assignment_fields(
                 db, service.assigned_unit_id, service.service_id, state="EN_ATENCION"
+            )
+            _place_unit(
+                db,
+                service.assigned_unit_id,
+                service.zone_id,
+                service.lat_approx,
+                service.lon_approx,
             )
         record_audit_event(
             db,

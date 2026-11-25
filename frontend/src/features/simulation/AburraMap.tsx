@@ -555,9 +555,18 @@ export default function AburraMap({
 
     for (const u of units) {
       const pos = liveMap[u.unit_id];
-      const lat = pos?.lat ?? u.lat;
-      const lon = pos?.lon ?? u.lon;
       const opState = resolveUnitOperationalState(u, activeRequests, basesById);
+      const attendingReq =
+        opState === "EN_ATENCION"
+          ? activeRequests.find(
+              (r) =>
+                r.status === "DISPATCHED" &&
+                r.assigned_unit_id === u.unit_id &&
+                Boolean(r.arrival_datetime),
+            )
+          : undefined;
+      const lat = attendingReq ? attendingReq.lat : (pos?.lat ?? u.lat);
+      const lon = attendingReq ? attendingReq.lon : (pos?.lon ?? u.lon);
       const isEnRoute = opState === "EN_RUTA";
       const isInAttention = opState === "EN_ATENCION";
       const isAtClinicStop = opState === "EN_TRASLADO" && Boolean(pos?.atClinic);
