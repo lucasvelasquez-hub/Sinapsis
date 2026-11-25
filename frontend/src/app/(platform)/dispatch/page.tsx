@@ -120,7 +120,8 @@ export default function DispatchCenterPage() {
     }
   };
 
-  const detail = detailQuery.data;
+  const detail = selectedServiceId ? detailQuery.data : undefined;
+  const eligibilityData = selectedServiceId ? eligibilityQuery.data : undefined;
   const simState = simStateQuery.data;
 
   const simZones = useMemo(() => simState?.zones ?? [], [simState?.zones]);
@@ -210,7 +211,14 @@ export default function DispatchCenterPage() {
   };
 
   const mapFocusPoint = useMemo(() => {
-    if (!detail) return null;
+    if (!detail) {
+      return {
+        lat: 6.2442,
+        lon: -75.5812,
+        zoom: 11.4,
+        key: "metro-overview",
+      };
+    }
     const req = focusedRequests.find((r) => r.service_id === detail.service_id);
     if (detail.assigned_unit_id) {
       // Si ya está EN_ATENCION, la móvil está junto al paciente.
@@ -372,7 +380,7 @@ export default function DispatchCenterPage() {
                       queries={[eligibilityQuery]}
                     />
                     <EligibilityPanel
-                      eligibility={eligibilityQuery.data}
+                      eligibility={eligibilityData}
                       status={detail.status}
                       assignedUnitId={detail.assigned_unit_id}
                     />
@@ -529,7 +537,7 @@ export default function DispatchCenterPage() {
                 <DecisionPanel
                   key={detail.service_id}
                   detail={detail}
-                  eligibility={eligibilityQuery.data}
+                  eligibility={eligibilityData}
                   onDecided={refreshAfterDecision}
                 />
               ) : (

@@ -41,6 +41,11 @@ export function RequestQueue({
     useDispatchStore();
   const [search, setSearch] = useState(filters.search);
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const userClearedRef = useRef(false);
+
+  useEffect(() => {
+    userClearedRef.current = false;
+  }, [filters.status, filters.urgency, filters.serviceType, filters.zone, filters.search]);
 
   useEffect(() => {
     if (search === filters.search) return;
@@ -52,8 +57,10 @@ export function RequestQueue({
   }, [search, filters.search, setFilter]);
 
   // La selección nunca apunta a una solicitud que los filtros ocultan: se podría decidir sin verla.
+  // Si el usuario deseleccionó explícitamente con un segundo clic, se respeta la vista general.
   useEffect(() => {
     if (!requests) return;
+    if (selectedServiceId === null && userClearedRef.current) return;
     if (
       selectedServiceId &&
       requests.some((r) => r.service_id === selectedServiceId)
@@ -247,7 +254,15 @@ export function RequestQueue({
               key={req.service_id}
               type="button"
               aria-pressed={selected}
-              onClick={() => setSelectedServiceId(req.service_id)}
+              onClick={() => {
+                if (selected) {
+                  userClearedRef.current = true;
+                  setSelectedServiceId(null);
+                } else {
+                  userClearedRef.current = false;
+                  setSelectedServiceId(req.service_id);
+                }
+              }}
               className={cn(
                 "w-full cursor-pointer rounded-md border border-l-4 px-3 py-2.5 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-sky-500/60",
                 URGENCY_EDGE[req.urgency_level] ?? "border-l-slate-600",

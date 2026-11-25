@@ -76,12 +76,15 @@ describe("RequestQueue", () => {
     expect(onCreate).toHaveBeenCalledOnce();
   });
 
-  it("selects a request on click", () => {
+  it("selects a request on click and deselects it on a second click", () => {
     renderQueue();
 
-    fireEvent.click(screen.getByRole("button", { name: /SIM-2/ }));
-
+    const sim2 = screen.getByRole("button", { name: /SIM-2/ });
+    fireEvent.click(sim2);
     expect(useDispatchStore.getState().selectedServiceId).toBe("SIM-2");
+
+    fireEvent.click(sim2);
+    expect(useDispatchStore.getState().selectedServiceId).toBeNull();
   });
 
   it("does not keep a selection the filters hid", () => {
