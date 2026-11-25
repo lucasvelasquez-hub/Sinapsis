@@ -1,7 +1,9 @@
 from app.domain.assignment_policy import (
     PolicyUnit,
     is_transfer_likely,
+    r02_wait_warning,
     rank_units,
+    reserve_for_higher,
 )
 
 D03 = "Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min"
@@ -208,6 +210,27 @@ def test_d08_pairs_ambulance_that_frees_sooner() -> None:
     assert ranked[0].role == "PRIMER_RESPONDIENTE_ESTABILIZACION"
     assert ranked[0].paired_unit_id == "B"
     assert any("PREDICHO" in f for f in ranked[0].factors)
+
+
+def test_r01_reserves_unique_ambulance_for_older_01() -> None:
+    ranked = rank_units(
+        "07",
+        45,
+        [_unit("tam", "TAM", 10), _unit("vmd", "VMD", 12)],
+        transfer_likely=False,
+    )
+    reserved = reserve_for_higher("07", ranked, {"tam"})
+
+    assert [item.unit.unit_id for item in reserved] == ["vmd", "tam"]
+    assert any(w.startswith("Regla R01:") for w in reserved[1].warnings)
+    assert not any(w.startswith("Regla R01:") for w in reserved[0].warnings)
+
+
+def test_r02_warns_after_two_minutes() -> None:
+    assert r02_wait_warning("01", 2.0) is None
+    assert r02_wait_warning("02", None) is None
+    assert r02_wait_warning("07", 10) is None
+    assert r02_wait_warning("01", 2.1) == "Regla R02: lleva 2.1 min en despacho (meta 2)"
 
 
 def test_transfer_likely_vocabulary() -> None:

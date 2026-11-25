@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.models.raw import RawService, RawZone, RawZoneTravelTime
 from app.schemas.dispatch import EligibilityEvaluation, UnitStatusOut
+from app.services.eligibility_service import evaluate_eligibility
 from app.services.recommendation_service import retention_median_min, score_candidates
 
 
@@ -184,3 +185,116 @@ def test_d08_retention_is_per_center(db: Session) -> None:
     assert "PREDICHO" in text_a
     assert few == global_med
     assert "global" in text_few
+
+
+def test_older_01_reserves_its_only_on_time_ambulance_on_a_07(db: Session) -> None:
+    """La 01 más antigua se queda con la única TAM a tiempo; el 07 la ve al final."""
+    zone_id = db.execute(
+        select(RawZone.zone_id).where(RawZone.relative_demand != "ALTA").limit(1)
+    ).scalar_one()
+    when = datetime(2027, 1, 4, 12, 0)
+    older = RawService(
+        service_id="R01-OLDER-01",
+        request_datetime=when,
+        urgency_level="01",
+        service_type="Dolor torácico",
+        zone_id=zone_id,
+        status="PENDING",
+        is_synthetic=True,
+    )
+    green = RawService(
+        service_id="R01-GREEN-07",
+        request_datetime=when + timedelta(minutes=5),
+        urgency_level="07",
+        service_type="Consulta",
+        zone_id=zone_id,
+        status="PENDING",
+        is_synthetic=True,
+    )
+    db.add_all([older, green])
+    db.flush()
+
+    eligibility, _ranks = evaluate_eligibility(db, older, when)
+    ambulances = [
+        unit
+        for unit in eligibility.eligible_units
+        if unit.unit_type in {"TAM", "TAB"} and unit.current_zone_id
+    ]
+    by_zone: dict[str, list] = {}
+    for unit in ambulances:
+        by_zone.setdefault(unit.current_zone_id, []).append(unit)
+    alone = next((group[0] for group in by_zone.values() if len(group) == 1), None)
+    assert alone is not None
+
+    alta = set(
+        db.execute(select(RawZone.zone_id).where(RawZone.relative_demand == "ALTA")).scalars()
+    )
+    for unit in ambulances:
+        origin = unit.current_zone_id or ""
+        _set_travel(db, origin, zone_id, 4 if unit.unit_id == alone.unit_id else 80, 5)
+        for alta_zone in alta:
+            if alta_zone != zone_id:
+                _set_travel(db, origin, alta_zone, 40, 20)
+    other = _unit("vmd-apoyo", "Z-R01-LIBRE", "VMD")
+    _set_travel(db, "Z-R01-LIBRE", zone_id, 8, 5)
+    db.flush()
+
+    ranked = score_candidates(
+        db,
+        green,
+        EligibilityEvaluation(
+            service_id=green.service_id,
+            evaluation_datetime=green.request_datetime,
+            eligible_units=[alone, other],
+            excluded_units=[],
+        ),
+        {alone.unit_id: 4, other.unit_id: 1},
+        0.5,
+        0.2,
+        0.15,
+        0.15,
+    )
+
+    assert ranked[-1].unit.unit_id == alone.unit_id
+    assert any(w.startswith("Regla R01:") for w in ranked[-1].warnings)
+    assert len(ranked) > 1
+    assert not any(w.startswith("Regla R01:") for w in ranked[0].warnings)
+
+
+def test_r02_warning_follows_dispatch_datetime(db: Session) -> None:
+    zone_id = db.execute(select(RawZone.zone_id).limit(1)).scalar_one()
+    when = datetime(2027, 1, 4, 12, 0)
+    service = RawService(
+        service_id="R02-WAIT-01",
+        request_datetime=when,
+        dispatch_datetime=when - timedelta(minutes=2, seconds=6),
+        urgency_level="01",
+        service_type="Dolor torácico",
+        zone_id=zone_id,
+        status="PENDING",
+        is_synthetic=True,
+    )
+    db.add(service)
+    db.flush()
+    _set_travel(db, zone_id, zone_id, 4, 1)
+    db.flush()
+    eligibility = EligibilityEvaluation(
+        service_id=service.service_id,
+        evaluation_datetime=when,
+        eligible_units=[_unit("cerca", zone_id)],
+        excluded_units=[],
+    )
+
+    from app.services.simulation_service import advance_sim_clock
+
+    advance_sim_clock(db, when)
+    warned = score_candidates(db, service, eligibility, {"cerca": 1}, 0.5, 0.2, 0.15, 0.15)
+    assert any(w == "Regla R02: lleva 2.1 min en despacho (meta 2)" for w in warned[0].warnings)
+
+    service.dispatch_datetime = when - timedelta(minutes=2)
+    on_the_dot = score_candidates(db, service, eligibility, {"cerca": 1}, 0.5, 0.2, 0.15, 0.15)
+    assert not any(w.startswith("Regla R02:") for w in on_the_dot[0].warnings)
+
+    service.dispatch_datetime = None
+    missing = score_candidates(db, service, eligibility, {"cerca": 1}, 0.5, 0.2, 0.15, 0.15)
+    assert not any(w.startswith("Regla R02:") for w in missing[0].warnings)

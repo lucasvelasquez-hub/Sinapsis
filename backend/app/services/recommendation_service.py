@@ -14,8 +14,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
-from app.domain.assignment_policy import PolicyUnit, is_transfer_likely, rank_units
-from app.domain.enums import RecommendationStatus, UnitRole
+from app.domain.assignment_policy import (
+    URGENCY_RANK,
+    VITAL,
+    PolicyUnit,
+    is_transfer_likely,
+    r02_wait_warning,
+    rank_units,
+    reserve_for_higher,
+)
+from app.domain.enums import RecommendationStatus, ServiceStatus, UnitRole
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import utcnow
 from app.models.decision import Recommendation, RecommendationCandidate
@@ -44,6 +52,7 @@ from app.services.scoring_service import (
     get_scoring_config,
     normalize_min_max_0_100,
 )
+from app.services.simulation_service import get_or_create_simulation_session
 
 TOP_N = 3
 ASSUMED_ON_SCENE_MIN = 35.0
@@ -391,7 +400,14 @@ def score_candidates(
                 warnings=warnings,
             )
         )
-    return _order_by_policy(scored, service, target_min, risky_coverage_units)
+    return _order_by_policy(
+        scored,
+        service,
+        target_min,
+        risky_coverage_units,
+        reserved_ids=_reserved_unit_ids(db, service),
+        r02_warning=_pending_wait_warning(db, service),
+    )
 
 
 def retention_median_min(db: Session, center_name: str | None) -> tuple[float, str]:
@@ -428,11 +444,98 @@ def retention_median_min(db: Session, center_name: str | None) -> tuple[float, s
     return global_med, "Retención PREDICHO: mediana global"
 
 
+def _outranks(other: RawService, current: RawService) -> bool:
+    other_rank = URGENCY_RANK.get(other.urgency_level, len(URGENCY_RANK))
+    current_rank = URGENCY_RANK.get(current.urgency_level, len(URGENCY_RANK))
+    if other_rank != current_rank:
+        return other_rank < current_rank
+    if other.request_datetime != current.request_datetime:
+        return other.request_datetime < current.request_datetime
+    return other.service_id < current.service_id
+
+
+def _on_time_ambulance_ids(db: Session, service: RawService) -> list[str] | None:
+    """Ambulancias dentro de la meta. None si falta una celda de matriz y no hay prueba."""
+    eligibility, _ranks = evaluate_eligibility(db, service, service.request_datetime)
+    ambulances = [
+        unit
+        for unit in eligibility.eligible_units
+        if unit.unit_type in AMBULANCE_TYPES and unit.current_zone_id
+    ]
+    if not ambulances:
+        return []
+    traffic = _traffic_factor(db, service.request_datetime)
+    travel = _travel_lookup(
+        db,
+        {unit.current_zone_id for unit in ambulances if unit.current_zone_id},
+        service.zone_id,
+    )
+    target_row = db.get(RawResponseTarget, service.urgency_level)
+    target_min = float(target_row.target_response_min) if target_row else 15.0
+    on_time: list[str] = []
+    for unit in ambulances:
+        row = travel.get(unit.current_zone_id or "")
+        if row is None:
+            return None
+        arrival = round(row[1] * traffic + 2.0, 2)
+        if arrival <= target_min:
+            on_time.append(unit.unit_id)
+    return on_time
+
+
+def _reserved_unit_ids(db: Session, service: RawService) -> set[str]:
+    """Única ambulancia a tiempo de cada 01/02 pendiente más prioritario."""
+    if service.status != ServiceStatus.PENDING:
+        return set()
+    others = (
+        db.execute(
+            select(RawService).where(
+                RawService.status == ServiceStatus.PENDING,
+                RawService.urgency_level.in_(tuple(VITAL)),
+                RawService.service_id != service.service_id,
+            )
+        )
+        .scalars()
+        .all()
+    )
+    reserved: set[str] = set()
+    for other in others:
+        if not _outranks(other, service):
+            continue
+        on_time = _on_time_ambulance_ids(db, other)
+        if on_time is not None and len(on_time) == 1:
+            reserved.add(on_time[0])
+    return reserved
+
+
+def _pending_wait_warning(db: Session, service: RawService) -> str | None:
+    if service.status != ServiceStatus.PENDING or service.dispatch_datetime is None:
+        return None
+    now = get_or_create_simulation_session(db).current_sim_datetime
+    waited = (now - service.dispatch_datetime).total_seconds() / 60.0
+    return r02_wait_warning(service.urgency_level, waited)
+
+
+def _visible_top(ordered: list[ScoredCandidate]) -> list[ScoredCandidate]:
+    """Top 3, más las móviles hundidas por R01 para que el despachador pueda elegirlas."""
+    top = list(ordered[:TOP_N])
+    seen = {candidate.unit.unit_id for candidate in top}
+    for candidate in ordered[TOP_N:]:
+        if candidate.unit.unit_id in seen:
+            continue
+        if any(warning.startswith("Regla R01:") for warning in candidate.warnings):
+            top.append(candidate)
+            seen.add(candidate.unit.unit_id)
+    return top
+
+
 def _order_by_policy(
     scored: list[ScoredCandidate],
     service: RawService,
     target_min: float,
     risky_coverage_units: set[str],
+    reserved_ids: set[str] | None = None,
+    r02_warning: str | None = None,
 ) -> list[ScoredCandidate]:
     """Orden de rank_units. La VMD marcada R04 queda delante hasta que la política emita el rol."""
     if not scored:
@@ -451,12 +554,16 @@ def _order_by_policy(
         )
         for c in scored
     ]
-    ranked = rank_units(
+    ranked = reserve_for_higher(
         service.urgency_level,
-        target_min,
-        policy_units,
-        transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
-        support_vmd=service.urgency_level == "01",
+        rank_units(
+            service.urgency_level,
+            target_min,
+            policy_units,
+            transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+            support_vmd=service.urgency_level == "01",
+        ),
+        reserved_ids or set(),
     )
     by_id = {c.unit.unit_id: c for c in scored}
     ordered: list[ScoredCandidate] = []
@@ -486,10 +593,19 @@ def _order_by_policy(
         for c in ordered
         if c.recommended_role == UnitRole.PRIMER_RESPONDIENTE_ESTABILIZACION.value
     ]
-    if not responders:
-        return ordered
-    rest = [c for c in ordered if c not in responders]
-    return responders + rest
+    if responders:
+        rest = [c for c in ordered if c not in responders]
+        ordered = responders + rest
+    held = reserved_ids or set()
+    if held:
+        front = [c for c in ordered if c.unit.unit_id not in held]
+        back = [c for c in ordered if c.unit.unit_id in held]
+        ordered = front + back
+    if r02_warning:
+        for candidate in ordered:
+            if r02_warning not in candidate.warnings:
+                candidate.warnings.append(r02_warning)
+    return ordered
 
 
 def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
@@ -506,16 +622,18 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
         "coverage": cfg.weight_coverage,
     }
     eligibility, compat_ranks = evaluate_eligibility(db, service, service.request_datetime)
-    top = score_candidates(
-        db,
-        service,
-        eligibility,
-        compat_ranks,
-        cfg.weight_time,
-        cfg.weight_workload,
-        cfg.weight_cost,
-        cfg.weight_coverage,
-    )[:TOP_N]
+    top = _visible_top(
+        score_candidates(
+            db,
+            service,
+            eligibility,
+            compat_ranks,
+            cfg.weight_time,
+            cfg.weight_workload,
+            cfg.weight_cost,
+            cfg.weight_coverage,
+        )
+    )
     status = RecommendationStatus.GENERATED if top else RecommendationStatus.NO_ELIGIBLE_UNITS
 
     rec = Recommendation(

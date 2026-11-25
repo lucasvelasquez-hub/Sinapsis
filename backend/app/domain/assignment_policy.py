@@ -3,7 +3,7 @@
 El primer criterio que distingue, gana. La zona no entra en esta comparación.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 ARRIVAL_BAND_MIN = 3.0
 VMD_ADVANTAGE_MIN = 12.0
@@ -20,6 +20,7 @@ AMBULANCE_TYPES = frozenset({"TAM", "TAB"})
 WARN_D03 = "Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min"
 WARN_D05 = "Regla D05: hay TAB disponible; reservar TAM para emergencias 01"
 WARN_D06 = "Regla D06: 07 con posible traslado; TAB dentro de la meta"
+WARN_R01 = "Regla R01: reservada para un servicio más prioritario"
 
 TRANSFER_MOTIVOS = frozenset({"Caídas", "Heridas"})
 TRANSFER_DISCRIMINADOR = "Signos de deshidratación"
@@ -44,6 +45,31 @@ class RankedUnit:
     paired_unit_id: str | None
     factors: list[str]
     warnings: list[str]
+
+
+def r02_wait_warning(urgency: str, waited_min: float | None) -> str | None:
+    """Aviso si un 01 o 02 lleva más de 2 min desde el despacho. Nulo no avisa."""
+    if urgency not in VITAL or waited_min is None or waited_min <= R02_ASSIGN_MAX_MIN:
+        return None
+    return f"Regla R02: lleva {waited_min:.1f} min en despacho (meta 2)"
+
+
+def reserve_for_higher(
+    urgency: str, units: list[RankedUnit], reserved_ids: set[str]
+) -> list[RankedUnit]:
+    """Hunde las móviles reservadas. No las quita de la lista."""
+    if urgency not in URGENCY_RANK or not reserved_ids:
+        return list(units)
+    front = [item for item in units if item.unit.unit_id not in reserved_ids]
+    back: list[RankedUnit] = []
+    for item in units:
+        if item.unit.unit_id not in reserved_ids:
+            continue
+        warnings = list(item.warnings)
+        if WARN_R01 not in warnings:
+            warnings.append(WARN_R01)
+        back.append(replace(item, warnings=warnings))
+    return front + back
 
 
 def is_transfer_likely(motivo: str | None, discriminador: str | None) -> bool:
