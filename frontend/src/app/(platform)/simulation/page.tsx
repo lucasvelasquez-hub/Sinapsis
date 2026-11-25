@@ -19,6 +19,13 @@ import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { URGENCY_BADGE } from "@/features/dispatch/urgency";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import type { LivePos } from "@/features/simulation/AburraMap";
+import {
+  advanceAlongRoute,
+  computeEffectiveSpeedKmh,
+  computeStepKm,
+  haversineKm,
+  SIM_TICK_MS,
+} from "@/features/simulation/movement";
 import { coreApi } from "@/lib/api";
 import { normalizeDispatcherId, useDispatcherStore } from "@/stores/dispatcherStore";
 import type { RecommendationOut, SimUnit, SimZone } from "@/types/core";
@@ -31,16 +38,6 @@ const AburraMap = dynamic(() => import("@/features/simulation/AburraMap"), {
     </div>
   ),
 });
-
-function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const r = 6371;
-  const p1 = (lat1 * Math.PI) / 180;
-  const p2 = (lat2 * Math.PI) / 180;
-  const dp = ((lat2 - lat1) * Math.PI) / 180;
-  const dl = ((lon2 - lon1) * Math.PI) / 180;
-  const a = Math.sin(dp / 2) ** 2 + Math.cos(p1) * Math.cos(p2) * Math.sin(dl / 2) ** 2;
-  return 2 * r * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
 
 function nearestZone(lat: number, lon: number, zones: SimZone[]): string | undefined {
   let best: SimZone | undefined;
@@ -113,6 +110,7 @@ export default function SimulationPage() {
     [stateQuery.data]
   );
   const trafficFactor = stateQuery.data?.traffic_factor ?? 1.0;
+  const effectiveSpeedKmh = computeEffectiveSpeedKmh(trafficFactor);
 
   const posMutation = useMutation({
     mutationFn: coreApi.sendSimulationPositions,
@@ -238,52 +236,43 @@ export default function SimulationPage() {
             continue;
           }
 
-          const wp = route[Math.min(routeIdx, route.length - 1)];
-          const dLat = wp[0] - cur.lat;
-          const dLon = wp[1] - cur.lon;
-          const dist = Math.hypot(dLat, dLon);
-          const step = (0.0022 * speed) / Math.max(1.0, trafficFactor);
+          const stepKm = computeStepKm(trafficFactor, speed, SIM_TICK_MS);
+          const moved = advanceAlongRoute(cur.lat, cur.lon, route, routeIdx, stepKm);
 
-          if (dist <= step) {
-            if (routeIdx < route.length - 1) {
-              next[u.unit_id] = {
-                lat: wp[0],
-                lon: wp[1],
-                targetZoneId: tgtZone,
-                route,
-                routeIdx: routeIdx + 1,
-              };
-            } else {
-              let nextZone = tgtZone;
-              if (assignedReq && !assignedReq.arrival_datetime && !arrivedSent.current.has(assignedReq.service_id)) {
-                arrivedSent.current.add(assignedReq.service_id);
-                arriveMutation.mutate(assignedReq.service_id);
-              } else if (!assignedReq && u.simulated_available) {
-                const sector = zonesByBase.get(u.base_id);
-                const pool = sector && sector.length > 0 ? sector : zones;
-                nextZone = pool[Math.floor(Math.random() * pool.length)].zone_id;
-              }
-              next[u.unit_id] = {
-                lat: wp[0],
-                lon: wp[1],
-                targetZoneId: nextZone,
-                route: nextZone !== tgtZone ? undefined : route,
-                routeIdx: nextZone !== tgtZone ? 0 : routeIdx,
-              };
+          if (moved.reachedEnd) {
+            let nextZone = tgtZone;
+            if (
+              assignedReq &&
+              !assignedReq.arrival_datetime &&
+              !arrivedSent.current.has(assignedReq.service_id)
+            ) {
+              arrivedSent.current.add(assignedReq.service_id);
+              arriveMutation.mutate(assignedReq.service_id);
+            } else if (!assignedReq && u.simulated_available) {
+              const sector = zonesByBase.get(u.base_id);
+              const pool = sector && sector.length > 0 ? sector : zones;
+              nextZone = pool[Math.floor(Math.random() * pool.length)].zone_id;
             }
+            next[u.unit_id] = {
+              lat: moved.lat,
+              lon: moved.lon,
+              targetZoneId: nextZone,
+              route: nextZone !== tgtZone ? undefined : route,
+              routeIdx: nextZone !== tgtZone ? 0 : moved.routeIdx,
+            };
           } else {
             next[u.unit_id] = {
-              lat: cur.lat + (dLat / dist) * step,
-              lon: cur.lon + (dLon / dist) * step,
+              lat: moved.lat,
+              lon: moved.lon,
               targetZoneId: tgtZone,
               route,
-              routeIdx,
+              routeIdx: moved.routeIdx,
             };
           }
         }
         return next;
       });
-    }, 800);
+    }, SIM_TICK_MS);
 
     return () => clearInterval(timer);
   }, [running, speed, trafficFactor, zones, bases, units, activeRequests]);
@@ -413,8 +402,11 @@ export default function SimulationPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <span className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 font-mono text-xs text-amber-200">
-            Tráfico: {trafficFactor.toFixed(2)}x
+          <span
+            title="Velocidad base 50 km/h ajustada por el factor de tráfico"
+            className="rounded border border-amber-500/40 bg-amber-500/10 px-2.5 py-1.5 font-mono text-xs text-amber-200"
+          >
+            Tráfico: {trafficFactor.toFixed(2)}x · ~{Math.round(effectiveSpeedKmh)} km/h
           </span>
           <button
             type="button"
