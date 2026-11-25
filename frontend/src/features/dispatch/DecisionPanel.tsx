@@ -286,7 +286,7 @@ export function DecisionPanel({
           )}
 
           {selection && (
-            <div className="sticky bottom-0 space-y-2">
+            <div className="sticky bottom-0 space-y-2 pt-1">
               {r06Factor && (
                 <div
                   role="alert"
@@ -298,19 +298,27 @@ export function DecisionPanel({
               )}
               <div
                 className={cn(
-                  "flex items-center justify-between gap-4 rounded-lg border border-l-4 border-slate-700 bg-slate-950 px-4 py-3 shadow-lg shadow-black/40",
+                  "space-y-2.5 rounded-lg border border-l-4 border-slate-700/90 bg-[#06101d] p-3 shadow-lg shadow-black/50",
                   URGENCY_EDGE[detail.urgency_level] ?? "border-l-slate-500",
                 )}
               >
-                <span className="font-mono text-lg font-bold text-slate-50">
-                  {confirmLabel(selection, detail.service_id)}
-                </span>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-sm font-bold text-slate-50">
+                    {confirmLabel(selection, detail.service_id)}
+                  </span>
+                </div>
                 <button
                   type="button"
                   disabled={!canConfirm}
                   onClick={confirm}
-                  className="shrink-0 rounded-md bg-cyan-500 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                  className={cn(
+                    "flex w-full cursor-pointer items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-bold transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300",
+                    detail.urgency_level === "01" || detail.urgency_level === "02"
+                      ? "bg-rose-600 text-white hover:bg-rose-500 focus-visible:ring-rose-300"
+                      : "bg-sky-500 text-slate-950 hover:bg-sky-400 focus-visible:ring-sky-200",
+                  )}
                 >
+                  <CheckCircle2 className="h-4 w-4" />
                   {decisionMutation.isPending
                     ? "Registrando…"
                     : selection.kind === "manual" && selection.unitId === null
@@ -371,54 +379,55 @@ function CandidateOption({
       disabled={unavailable}
       onClick={onSelect}
       className={cn(
-        "w-full rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-80",
+        "w-full cursor-pointer rounded-lg border p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-not-allowed disabled:opacity-80",
         selected
-          ? "border-cyan-400 bg-cyan-500/10"
-          : "border-slate-800 bg-slate-950/70 hover:border-slate-600",
+          ? "border-sky-400 bg-sky-500/12 shadow-sm shadow-sky-950/60"
+          : top
+            ? "border-sky-500/35 bg-[#06101d] hover:border-sky-400/70"
+            : "border-slate-800/90 bg-[#071120]/80 hover:border-slate-600",
       )}
     >
+      {top && !unavailable && (
+        <div className="mb-1.5 flex items-center justify-between border-b border-slate-800/70 pb-1 text-[10px] font-semibold uppercase tracking-wider">
+          <span className="text-sky-300">Móvil sugerido · Recomendada</span>
+          <span className="font-mono text-emerald-300">
+            ETA {cand.expected_response_min} min
+          </span>
+        </div>
+      )}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
+        <div className="flex items-start gap-2.5">
           <span
             aria-hidden
             className={cn(
               "mt-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
-              selected ? "border-cyan-300" : "border-slate-500",
+              selected ? "border-sky-300" : "border-slate-500",
             )}
           >
-            {selected && <span className="h-2 w-2 rounded-full bg-cyan-300" />}
+            {selected && <span className="h-2 w-2 rounded-full bg-sky-300" />}
           </span>
           <div>
             <div className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xs text-slate-400">#{cand.rank}</span>
+              <span className="font-mono text-xs text-slate-400">#{cand.rank}</span>
               <span className="font-mono text-base font-bold text-slate-50">
-                {cand.unit_id}
+                {cand.unit_id} · {cand.unit_type}
               </span>
               <span className="text-xs text-slate-300">
-                {cand.unit_type}
                 {currentZoneId ? (
-                  <>
-                    {" · "}
-                    <span className="font-mono text-cyan-200/90">
-                      {currentZoneId}
-                    </span>
-                  </>
+                  <span className="font-mono text-sky-300/90">
+                    {currentZoneId}
+                  </span>
                 ) : null}
-                {" · "}
+                {currentZoneId ? " · " : ""}
                 <span className="text-slate-400">{cand.base_id}</span>
               </span>
-              {top && !unavailable && (
-                <span className="text-xs font-semibold text-cyan-200">
-                  Recomendada
-                </span>
-              )}
               {unavailable && (
                 <span className="text-xs font-semibold text-rose-200">
                   Ya no disponible
                 </span>
               )}
             </div>
-            <div className="mt-1 flex items-center gap-2 text-sm">
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs">
               <Clock className="h-3.5 w-3.5 text-amber-300" />
               <span
                 className={cn("tabular-nums text-slate-50", top && "font-bold")}
@@ -426,15 +435,17 @@ function CandidateOption({
                 {cand.expected_response_min} min
               </span>
               <ProvenanceBadge type="PREDICHO" />
-              <span className="truncate text-xs text-slate-400">
+              <span className="truncate text-[11px] text-slate-400">
                 {cand.estimation_type}
               </span>
             </div>
           </div>
         </div>
         <div className="text-right">
-          <div className="text-xs text-slate-400">Puntuación</div>
-          <div className="text-lg font-bold tabular-nums text-slate-50">
+          <div className="text-[10px] uppercase tracking-wider text-slate-400">
+            Score
+          </div>
+          <div className="font-mono text-base font-bold tabular-nums text-slate-50">
             {cand.score.toFixed(2)}
           </div>
         </div>

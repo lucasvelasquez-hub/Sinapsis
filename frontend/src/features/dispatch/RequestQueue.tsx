@@ -95,7 +95,7 @@ export function RequestQueue({
       : "Sin solicitudes con estos filtros";
 
   return (
-    <section className="ops-panel flex max-h-[72vh] flex-col rounded-lg border border-slate-800/90 bg-[#0a1626] lg:h-[calc(100vh-6.25rem)] lg:max-h-none">
+    <section className="ops-panel flex max-h-[72vh] flex-1 flex-col rounded-lg border border-slate-800/90 bg-[#0a1626] lg:h-full lg:max-h-none lg:min-h-0">
       <div className="space-y-2.5 border-b border-slate-800/90 p-3">
         <div className="flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-slate-200">

@@ -152,12 +152,12 @@ export default function DispatchCenterPage() {
   }, [simState?.active_requests, simState?.zones, detail]);
 
   return (
-    <div className="space-y-3">
+    <div className="flex flex-col gap-2.5 lg:h-[calc(100vh-5.5rem)]">
       <LastDecisionBanner />
 
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-12">
+      <div className="grid flex-1 grid-cols-1 gap-3.5 lg:min-h-0 lg:grid-cols-12">
         {/* Column 1: Triage Queue */}
-        <div className="lg:col-span-3">
+        <div className="flex flex-col lg:col-span-3 lg:min-h-0">
           <RequestQueue
             requests={requestsQuery.data}
             isLoading={requestsQuery.isLoading}
@@ -166,23 +166,25 @@ export default function DispatchCenterPage() {
         </div>
 
         {/* Column 2: Ticket Card + Tactical View Tabs */}
-        <section className="core-scroller flex flex-col gap-3 lg:col-span-5 lg:h-[calc(100vh-6.25rem)] lg:overflow-y-auto lg:pr-1">
+        <section className="flex flex-col gap-3 lg:col-span-5 lg:min-h-0">
           <QueryErrorAlert queries={[detailQuery]} />
           {!detail ? (
-            <div className="ops-panel rounded-lg border border-slate-800/90 bg-[#0a1626] p-6 text-sm text-slate-300">
+            <div className="ops-panel flex-1 rounded-lg border border-slate-800/90 bg-[#0a1626] p-6 text-sm text-slate-300">
               Selecciona una solicitud de la cola para ver su contexto y
               decidir.
             </div>
           ) : (
             <>
-              <RequestSummaryCard
-                detail={detail}
-                simDatetime={simState?.current_sim_datetime}
-              />
+              <div className="shrink-0">
+                <RequestSummaryCard
+                  detail={detail}
+                  simDatetime={simState?.current_sim_datetime}
+                />
+              </div>
 
-              {/* Central View Switcher Tabs */}
-              <div className="ops-panel rounded-lg border border-slate-800/90 bg-[#0a1626] p-3">
-                <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-800/80 pb-1">
+              {/* Central View Switcher Tabs (fills remaining column height) */}
+              <div className="ops-panel flex flex-1 flex-col rounded-lg border border-slate-800/90 bg-[#0a1626] p-3 lg:min-h-0">
+                <div className="mb-3 flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/80 pb-1">
                   <div
                     role="tablist"
                     aria-label="Vista táctica"
@@ -224,7 +226,7 @@ export default function DispatchCenterPage() {
                   <div
                     role="tabpanel"
                     aria-labelledby="dispatch-tab-hybrid"
-                    className="space-y-3"
+                    className="core-scroller flex-1 space-y-3 overflow-y-auto pr-0.5"
                   >
                     {simState && (
                       <div className="space-y-1.5">
@@ -278,9 +280,9 @@ export default function DispatchCenterPage() {
                   <div
                     role="tabpanel"
                     aria-labelledby="dispatch-tab-map"
-                    className="space-y-2"
+                    className="flex flex-1 flex-col gap-2 lg:min-h-0"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
                       <span className="font-semibold uppercase tracking-wider text-slate-300">
                         Red EMI · Valle de Aburrá (Tráfico{" "}
                         {(simState?.traffic_factor ?? 1.0).toFixed(2)}x)
@@ -305,20 +307,22 @@ export default function DispatchCenterPage() {
                       </div>
                     </div>
                     {simState ? (
-                      <AburraMap
-                        zones={simState.zones}
-                        bases={simState.bases}
-                        careCenters={simState.care_centers}
-                        units={simState.units}
-                        activeRequests={focusedRequests}
-                        liveMap={tacticalLiveMap}
-                        trafficFactor={simState.traffic_factor ?? 1.0}
-                        selectedUnitId={selectedMapUnitId}
-                        onSelectUnit={setSelectedMapUnitId}
-                        heightClass="h-[500px]"
-                      />
+                      <div className="flex-1 min-h-[420px]">
+                        <AburraMap
+                          zones={simState.zones}
+                          bases={simState.bases}
+                          careCenters={simState.care_centers}
+                          units={simState.units}
+                          activeRequests={focusedRequests}
+                          liveMap={tacticalLiveMap}
+                          trafficFactor={simState.traffic_factor ?? 1.0}
+                          selectedUnitId={selectedMapUnitId}
+                          onSelectUnit={setSelectedMapUnitId}
+                          heightClass="h-full min-h-[420px]"
+                        />
+                      </div>
                     ) : (
-                      <div className="flex h-[320px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
+                      <div className="flex flex-1 min-h-[320px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
                         Cargando estado geoespacial…
                       </div>
                     )}
@@ -330,9 +334,9 @@ export default function DispatchCenterPage() {
                   <div
                     role="tabpanel"
                     aria-labelledby="dispatch-tab-clinical"
-                    className="space-y-3 text-xs"
+                    className="core-scroller flex-1 space-y-3 overflow-y-auto text-xs"
                   >
-                    <dl className="grid grid-cols-2 gap-3 rounded-md border border-slate-800/80 bg-[#06101d] p-3">
+                    <dl className="grid grid-cols-2 gap-3 rounded-md border border-slate-800/80 bg-[#06101d] p-4">
                       <div>
                         <dt className="text-slate-400">Clasificación EMI</dt>
                         <dd className="mt-0.5 font-mono font-semibold text-slate-100">
@@ -353,7 +357,7 @@ export default function DispatchCenterPage() {
                           {detail.context.is_peak_hour
                             ? "Hora pico"
                             : "Hora valle"}{" "}
-                          ({detail.context.is_weekend ? "Fin de semana" : "Habil"})
+                          ({detail.context.is_weekend ? "Fin de semana" : "Hábil"})
                         </dd>
                       </div>
                       <div>
@@ -390,27 +394,54 @@ export default function DispatchCenterPage() {
           )}
         </section>
 
-        {/* Column 3: CORE AI Recommendation + Audit Log */}
-        <section className="core-scroller flex flex-col gap-3 lg:col-span-4 lg:h-[calc(100vh-6.25rem)] lg:overflow-y-auto lg:pr-1">
-          <div className="ops-panel rounded-lg border border-slate-800/90 bg-[#0a1626] p-4">
-            <div className="mb-3 flex items-center justify-between">
+        {/* Column 3: CORE AI Recommendation + Audit Log (both stretch to fill space) */}
+        <section className="flex flex-col gap-3 lg:col-span-4 lg:min-h-0">
+          <div
+            className={cn(
+              "ops-panel flex flex-col overflow-hidden rounded-lg border bg-[#0a1626] lg:max-h-[64%]",
+              detail && (detail.urgency_level === "01" || detail.urgency_level === "02")
+                ? "border-rose-500/45 shadow-md shadow-rose-950/30"
+                : "border-sky-500/35",
+            )}
+          >
+            <div className="flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/80 bg-gradient-to-r from-sky-950/70 via-[#0b1b30] to-[#0a1626] px-4 py-3">
               <div>
-                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-100">
-                  Recomendación CORE
+                <h2 className="text-xs font-bold uppercase tracking-wider text-slate-50">
+                  Recomendación CORE AI
                 </h2>
                 <p className="text-[11px] text-slate-400">
-                  CORE recomienda; la firma es del despachador.
+                  Red EMI · Firma del despachador
                 </p>
               </div>
+              {detail && (
+                <span
+                  className={cn(
+                    "rounded-full border px-2.5 py-0.5 font-mono text-[10px] font-semibold",
+                    detail.urgency_level === "01" || detail.urgency_level === "02"
+                      ? "border-rose-500/40 bg-rose-500/15 text-rose-200"
+                      : "border-sky-500/40 bg-sky-500/15 text-sky-200",
+                  )}
+                >
+                  {detail.urgency_level === "01" || detail.urgency_level === "02"
+                    ? "Prioridad Vital"
+                    : "Motor EMI"}
+                </span>
+              )}
             </div>
-            {detail && (
-              <DecisionPanel
-                key={detail.service_id}
-                detail={detail}
-                eligibility={eligibilityQuery.data}
-                onDecided={refreshAfterDecision}
-              />
-            )}
+            <div className="core-scroller flex-1 overflow-y-auto p-3.5">
+              {detail ? (
+                <DecisionPanel
+                  key={detail.service_id}
+                  detail={detail}
+                  eligibility={eligibilityQuery.data}
+                  onDecided={refreshAfterDecision}
+                />
+              ) : (
+                <p className="text-xs text-slate-400">
+                  Selecciona una solicitud para evaluar recomendaciones.
+                </p>
+              )}
+            </div>
           </div>
           <DecisionHistory decisions={decisionsQuery.data} />
         </section>
