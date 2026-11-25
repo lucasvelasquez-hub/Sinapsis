@@ -17,7 +17,7 @@ export const DISPATCHERS = [
 ] as const;
 
 /** Identificador del despachador: obligatorio para registrar cualquier decisión. */
-export function DispatcherField() {
+export function DispatcherField({ compact = false }: { compact?: boolean }) {
   const { dispatcherId, setDispatcherId } = useDispatcherStore();
 
   useEffect(() => {
@@ -25,6 +25,46 @@ export function DispatcherField() {
   }, []);
 
   const valid = normalizeDispatcherId(dispatcherId) !== null;
+  const shortBadge = dispatcherId
+    ? `D${dispatcherId.replace(/\D/g, "").replace(/^0+/, "") || dispatcherId.slice(0, 2).toUpperCase()}`
+    : "--";
+
+  if (compact) {
+    return (
+      <div className="inline-flex items-center gap-1.5 rounded-full border border-slate-700/80 bg-[#071322] px-2 py-1">
+        <span
+          aria-hidden
+          className={cn(
+            "flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold",
+            valid
+              ? "bg-sky-500/20 text-sky-300 ring-1 ring-sky-500/40"
+              : "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/40"
+          )}
+        >
+          {shortBadge}
+        </span>
+        <select
+          aria-label="Despachador activo"
+          value={dispatcherId}
+          onChange={(e) => setDispatcherId(e.target.value)}
+          aria-invalid={!valid}
+          className={cn(
+            "max-w-[155px] cursor-pointer bg-transparent text-xs font-medium text-slate-100 focus:outline-none",
+            !valid && "text-amber-200"
+          )}
+        >
+          <option value="" className="bg-slate-950 text-slate-200">
+            Despachador…
+          </option>
+          {DISPATCHERS.map((d) => (
+            <option key={d.id} value={d.id} className="bg-slate-950 text-slate-100">
+              {d.label}
+            </option>
+          ))}
+        </select>
+      </div>
+    );
+  }
 
   return (
     <label className="flex flex-col gap-1 text-[11px] text-slate-400">

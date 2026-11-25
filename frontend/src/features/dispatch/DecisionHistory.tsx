@@ -6,11 +6,14 @@ export function DecisionHistory({
   decisions: DecisionOut[] | undefined;
 }) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-4">
-      <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-slate-100">
+    <div className="ops-panel rounded-lg border border-slate-800/90 bg-[#0a1626] p-4">
+      <div className="mb-2.5 flex items-center justify-between">
+        <h2 className="text-xs font-bold uppercase tracking-wider text-slate-100">
           Últimas decisiones
         </h2>
+        <span className="font-mono text-[10px] text-slate-400">
+          Bitácora EMI
+        </span>
       </div>
       {decisions?.length === 0 && (
         <p className="text-xs text-slate-300">

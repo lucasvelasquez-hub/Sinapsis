@@ -34,12 +34,14 @@ describe("RequestQueue", () => {
     vi.useRealTimers();
   });
 
-  it("shows only pending requests by default", () => {
+  it("shows only pending requests by default via status tabs", () => {
     renderQueue();
 
-    expect((screen.getByLabelText("Estado") as HTMLSelectElement).value).toBe(
-      "PENDING",
-    );
+    const pendingTab = screen.getByRole("tab", { name: "Pendientes" });
+    expect(pendingTab.getAttribute("aria-selected")).toBe("true");
+
+    fireEvent.click(screen.getByRole("tab", { name: "Históricas" }));
+    expect(useDispatchStore.getState().filters.status).toBe("COMPLETED");
   });
 
   it("offers urgencies, service types and zones from the catalog", async () => {

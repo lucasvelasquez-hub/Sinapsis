@@ -267,6 +267,7 @@ export default function AburraMap({
   trafficFactor = 1.0,
   selectedUnitId,
   onSelectUnit,
+  heightClass = "h-[560px]",
 }: {
   zones: SimZone[];
   bases: SimBase[];
@@ -278,6 +279,7 @@ export default function AburraMap({
   trafficFactor?: number;
   selectedUnitId: string | null;
   onSelectUnit: (unitId: string) => void;
+  heightClass?: string;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
@@ -637,7 +639,7 @@ export default function AburraMap({
   return (
     <div
       ref={containerRef}
-      className="h-[560px] w-full overflow-hidden rounded border border-slate-800/80 [&_.core-map-popup]:pointer-events-none [&_.core-map-popup]:z-50 [&_.core-map-popup_.maplibregl-popup-content]:!bg-transparent [&_.core-map-popup_.maplibregl-popup-content]:!p-0 [&_.core-map-popup_.maplibregl-popup-content]:!shadow-none [&_.core-map-popup_.maplibregl-popup-tip]:!hidden"
+      className={`${heightClass} w-full overflow-hidden rounded border border-slate-800/80 [&_.core-map-popup]:pointer-events-none [&_.core-map-popup]:z-50 [&_.core-map-popup_.maplibregl-popup-content]:!bg-transparent [&_.core-map-popup_.maplibregl-popup-content]:!p-0 [&_.core-map-popup_.maplibregl-popup-content]:!shadow-none [&_.core-map-popup_.maplibregl-popup-tip]:!hidden`}
     />
   );
 }

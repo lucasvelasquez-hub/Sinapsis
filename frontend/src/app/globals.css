@@ -1,8 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: dark;
+  --background: #050d18;
+  --foreground: #e2e8f0;
+  --ops-bg: #050d18;
+  --ops-surface: #0a1626;
+  --ops-surface-elevated: #0e1e33;
+  --ops-border: rgba(30, 58, 95, 0.72);
+  --ops-accent: #0ea5e9;
+  --ops-critical: #e11d48;
+  --scrollbar-thumb: #334155;
+  --scrollbar-track: #071120;
 }
 
 @theme inline {
@@ -12,17 +21,85 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+:root[data-contrast="high"] {
+  --background: #000000;
+  --foreground: #ffffff;
+  --ops-bg: #000000;
+  --ops-surface: #0a0a0a;
+  --ops-surface-elevated: #141414;
+  --ops-border: #60a5fa;
+  --ops-accent: #38bdf8;
+  --ops-critical: #fb7185;
+  --scrollbar-thumb: #f8fafc;
+  --scrollbar-track: #000000;
+}
+
+:root[data-contrast="high"] body {
+  background: #000000;
+  color: #ffffff;
+}
+
+:root[data-contrast="high"] .ops-panel {
+  background-color: #0a0a0a !important;
+  border-color: rgba(96, 165, 250, 0.75) !important;
 }
 
 body {
-  background: var(--background);
+  background: var(--ops-bg);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+.core-scroller {
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  scrollbar-width: thin;
+}
+
+@media (prefers-contrast: more) {
+  .core-scroller {
+    --scrollbar-thumb: #f8fafc;
+    --scrollbar-track: #000000;
+  }
+}
+
+@supports not (scrollbar-color: auto) {
+  .core-scroller {
+    scrollbar-width: auto;
+  }
+
+  .core-scroller::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  .core-scroller::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+
+  .core-scroller::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+}
+
+.core-tablist {
+  display: flex;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  gap: 0.25rem;
+}
+
+.core-tab {
+  position: relative;
+  flex: none;
+  white-space: nowrap;
+}
+
+.core-tab[aria-selected="true"]::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0;
+  border-block-end: 2px solid var(--ops-accent);
 }
 
 @keyframes core-siren-blink {
