@@ -1,4 +1,5 @@
 import type {
+  AllScenariosEvaluation,
   AnalyticsDemand,
   AdvanceClockOut,
   Catalog,
@@ -174,6 +175,11 @@ export const coreApi = {
   getKpisOverview: () => apiFetch<KpisOverview>("/benchmarks/kpis"),
 
   listScenarios: () => apiFetch<ScenarioSummary[]>("/benchmarks/scenarios"),
+
+  evaluateAllScenarios: () =>
+    apiFetch<AllScenariosEvaluation>("/benchmarks/scenarios/evaluate-all", {
+      method: "POST",
+    }),
 
   evaluateScenario: (scenarioId: string) =>
     apiFetch<ScenarioEvaluation>(`/benchmarks/scenarios/${scenarioId}/evaluate`, {

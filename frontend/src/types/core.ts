@@ -286,8 +286,17 @@ export interface ScenarioRequestEval {
   reference_distance_km?: number | null;
   reference_estimated_cost?: number | null;
   reference_justification: string | null;
+  reference_paired_unit_id?: string | null;
+  reference_paired_unit_type?: string | null;
+  reference_paired_role?: string | null;
   matches_reference_unit: boolean;
   matches_reference_type: boolean;
+  matches_paired_unit?: boolean;
+  matches_paired_type?: boolean;
+  sla_target_min?: number | null;
+  sla_met_core?: boolean | null;
+  sla_met_ref?: boolean | null;
+  eta_delta_min?: number | null;
 }
 
 export interface ScenarioEvaluation {
@@ -295,7 +304,69 @@ export interface ScenarioEvaluation {
   results: ScenarioRequestEval[];
   unit_match_rate: number;
   type_match_rate: number;
+  paired_match_rate?: number | null;
+  avg_eta_core_min?: number | null;
+  avg_eta_ref_min?: number | null;
+  eta_delta_min?: number | null;
+  sla_core_pct?: number | null;
+  sla_ref_pct?: number | null;
   events_applied?: number;
+}
+
+export interface ScenarioBatchItem {
+  id_escenario: string;
+  nombre: string;
+  objetivo_aprendizaje: string;
+  n_solicitudes: number;
+  events_applied: number;
+  unit_matches: number;
+  type_matches: number;
+  unit_match_rate: number;
+  type_match_rate: number;
+  paired_match_rate: number | null;
+  avg_eta_core_min: number | null;
+  avg_eta_ref_min: number | null;
+  eta_delta_min: number | null;
+  sla_core_pct: number;
+  sla_ref_pct: number;
+  avg_cost_core: number | null;
+  avg_cost_ref: number | null;
+  avg_dist_core_km: number | null;
+  avg_dist_ref_km: number | null;
+}
+
+export interface AllScenariosTotals {
+  total_scenarios: number;
+  total_requests: number;
+  unit_matches: number;
+  type_matches: number;
+  unit_match_rate: number;
+  type_match_rate: number;
+  avg_eta_core_min: number | null;
+  avg_eta_ref_min: number | null;
+  eta_delta_min: number | null;
+  sla_core_pct: number;
+  sla_ref_pct: number;
+  sla_vital_core_pct: number;
+  sla_vital_ref_pct: number;
+  avg_cost_core: number | null;
+  avg_cost_ref: number | null;
+  avg_dist_core_km: number | null;
+  avg_dist_ref_km: number | null;
+  discrepancy_counts: Record<string, number>;
+  r01_incompatible_count: number;
+  r03_vital_without_ambulance_or_pair: number;
+  r04_stabilization_count: number;
+  r06_diversion_detected_count: number;
+  d03_green_uncovered_warnings: number;
+  d05_tam_on_02_warnings: number;
+  d06_transfer_tab_activations: number;
+}
+
+export interface AllScenariosEvaluation {
+  provenance: "SIMULADO";
+  scenarios: ScenarioBatchItem[];
+  totals: AllScenariosTotals;
 }
 
 export interface SimZone {
