@@ -579,15 +579,16 @@ export default function AburraMap({
           ? "#ef4444"
           : baseColor;
       const isSelected = selectedUnitId === u.unit_id;
-      const borderColor = isSelected
-        ? "#ffffff"
-        : opState === "FUERA_SERVICIO"
-        ? "#94a3b8"
-        : isInAttention
-        ? "#fbbf24"
-        : isTransferring
-        ? "#ffffff"
-        : "#0f172a";
+      const borderColor =
+        opState === "FUERA_SERVICIO"
+          ? "#94a3b8"
+          : isInAttention
+            ? "#fbbf24"
+            : isTransferring
+              ? "#ffffff"
+              : isSelected
+                ? "#ffffff"
+                : "#0f172a";
       const styleKey = `${fillColor}|${borderColor}|${opState}|${isAtClinicStop}|${isSelected}`;
       const tooltip = isAtClinicStop
         ? `${u.unit_id} (${u.unit_type}) · STOP — Retención de camilla en clínica (D08)`

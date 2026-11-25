@@ -39,14 +39,18 @@
   color: #ffffff;
 }
 
+:root[data-contrast="high"] .ops-shell {
+  background-color: #000000 !important;
+}
+
 :root[data-contrast="high"] .ops-panel {
   background-color: #0a0a0a !important;
   border-color: rgba(96, 165, 250, 0.75) !important;
 }
 
 body {
-  background: var(--ops-bg);
-  color: var(--foreground);
+  background: var(--ops-bg, #050d18);
+  color: var(--foreground, #e2e8f0);
   font-family: Arial, Helvetica, sans-serif;
 }
 

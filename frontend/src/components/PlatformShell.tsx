@@ -153,7 +153,7 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const slaPct = overview ? Math.round(overview.sla_compliance_rate * 100) : null;
 
   return (
-    <div className="flex min-h-screen bg-[var(--ops-bg)] text-slate-100">
+    <div className="ops-shell flex min-h-screen bg-[#050d18] text-slate-100">
       {/* Collapsible Left Navigation Rail */}
       <aside
         aria-label="Navegación principal"
