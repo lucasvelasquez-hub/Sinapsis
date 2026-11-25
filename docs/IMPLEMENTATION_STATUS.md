@@ -1,51 +1,38 @@
 # CORE — Implementation Status
 
-Última actualización: 2026-11-19
+Última actualización: 2026-11-25
 
 ## Fase Actual
-**Fase 10 (Estabilización, Verificación E2E y Documentación)** — MVP v1.0 completo en verificación final.
+**Reglas EMI, Replay de Escenarios e Indicadores** — Motor de decisión alineado con las reglas R01–R07 y D01–D08, replay en memoria de los 14 escenarios de referencia y 12 KPIs con separación explícita de procedencia observada vs. simulada.
 
 ## Progreso General
-- [x] Fase 1: Monorepo, Docker/PostgreSQL, FastAPI base, Dataset sintético + validación
-- [x] Fase 2: Modelo de datos (schemas `raw`, `analytics`, `decision`, `core`), Alembic, EDA & Feature Engineering, Layout frontend
-- [x] Fase 3: Nodo 2 — Eligibility Engine & Simulación de disponibilidad
-- [x] Fase 4: Nodos 3 & 4 — Prediction Baseline/ML & MCDM Scoring
-- [x] Fase 5: Nodo 5 — Recommendation Engine & Contratos OpenAPI
-- [x] Fase 6: Dispatch Center (3 paneles) & Registro de decisiones
-- [x] Fase 7: Dashboard, Fleet Management & Operational Analytics
-- [x] Fase 8: Intelligence Center, Simulación & Auditoría E2E
-- [x] Fase 9: QA (Pytest, Vitest) & Validación matemática
-- [x] Fase 10: Estabilización, Documentación & Demostración final
+- [x] Fase 1–10: Monorepo, PostgreSQL/Supabase, modelo de datos (4 schemas), ML cronológico, API REST, UI operativa y suite de tests.
+- [x] Migración a dataset real Grupo EMI (EstudIA): 10.402 servicios históricos, 26 móviles (`VMD`/`TAB`/`TAM`) en 8 bases, 62 zonas, 3.844 pares O-D, 10 centros de atención, 72 factores de tráfico, 15 reglas y 5 objetivos (`01`, `02`, `07`, `03`, `06`).
+- [x] Política pura de asignación EMI (`domain/assignment_policy.py`): D01–D08, R01–R04, banda de `3 min`, metas `12 min` (`01`) / `20 min` (`02`), cobertura de zona `ALTA` a `≤20 min`, apoyo `VMD` si ambulancia `>15 min` (D07) y aviso `R02` a los `2 min`.
+- [x] Ciclo operativo en simulación: retención hospitalaria `EN_TRASLADO` (D08) con mediana por centro y liberación manual (`POST /api/v1/simulation/release/{service_id}`), cancelación en ruta manteniendo zona actual, desvío `R06` confirmable atómicamente y reclasificación `R07` (`POST /api/v1/requests/{service_id}/reclassify`).
+- [x] Replay en memoria de los 14 escenarios (`scenario_replay.py`) con eventos y sin escribir decisiones ni auditoría.
+- [x] 12 KPIs en `/api/v1/benchmarks/kpis` y pantalla `/benchmarks` distinguiendo `valor_actual_db` (observado) y `valor_simulado` (`SIMULADO`).
 
 ## Funcionalidades Terminadas
-- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic (`042b83efd042`, `1c5125447ef6`, `faa75e1c0208` override de elegibilidad, `545b0996db2b` FK/CHECK/decisión única).
-- **Dataset & Features**: 10.000 servicios, 30 móviles, 15 reglas, 4 objetivos, 90 días. Feature engineering cronológico sin leakage temporal (`zone_demand_4h/8h/12h`).
-- **ML & Predicción**: Evaluación cronológica (70/15/15) de `statistical_baseline`, `linear_regression_ridge` y `random_forest_regressor`. Dataset mínimo: seleccionado `linear_regression_ridge` por MAE de validación (`4.2111` vs baseline `4.2680`); en test MAE `3.7562` vs baseline `3.6898` (el baseline gana en MAE; el ridge gana en p90 `7.16` vs `7.92` y RMSE). Features sin `same_zone` (el dataset no relaciona base con comuna).
+- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con Alembic (`d9b2e5a1c4f0` en head). Auditoría solo-inserción para el rol `core_app`.
+- **Geografía y tiempos**: Matriz origen-destino (`raw.zone_travel_times`) × factores de tráfico (`raw.traffic_factors`) + distancia Haversine (`domain/geo.py`) con posiciones simuladas/en vivo. Costo operativo y cobertura geográfica de zonas `ALTA` activos en el motor.
 - **Motores de Decisión**:
-  - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ con motivos explícitos de exclusión.
-  - `scoring_service.py`: Normalización $[0, 100]$ y $J(j) = w_T \cdot T(j) + w_L \cdot L(j)$ (0.80 / 0.20 configurables).
-  - `recommendation_service.py`: Top 3 alternativas explicables o estado explícito `NO_ELIGIBLE_UNITS`.
-  - `decision_service.py` & `simulation_service.py`: Registro de decisiones humanas y actualización de disponibilidad simulada.
-- **API REST (`/api/v1/*`)**: `health`, `requests`, `requests/simulate`, `requests/{id}`, `recommendations/evaluate`, `recommendations/{id}`, `fleet/units`, `fleet/eligibility/{id}`, `analytics/overview`, `analytics/demand`, `decisions`, `config/scoring`.
-- **Frontend Next.js**: 5 pantallas operacionales (`/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`) con Apache ECharts, React Hook Form + Zod, Zustand, TanStack Query y badges de procedencia (`OBSERVADO`, `CALCULADO`, `PREDICHO`, `SIMULADO`).
-- **Tests**: Pytest (`91 passed`: flujo E2E, invariantes de decisión, simulación, dominio, restricciones DB, esquema raw, validador del dataset, catálogo, presupuesto de queries, artefacto ML; aislados en transacción y siempre contra Docker local) y Vitest (`21 passed`). CI en `.github/workflows/ci.yml`.
+  - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ + excepción `R06` para móviles `EN_RUTA` a `03`/`06` sin llegada.
+  - `domain/assignment_policy.py` & `scoring_service.py`: Ordenamiento jerárquico EMI (D01–D08, R01–R04) y score compuesto explicable (`0.50/0.20/0.15/0.15` en `core.scoring_config`) sin reordenar por encima de la política.
+  - `recommendation_service.py`: Top 3 explicables con factores, advertencias (`R01`, `R02`, `D03`, `D08`, `R06`) o estado `NO_ELIGIBLE_UNITS`.
+  - `decision_service.py` & `simulation_control_service.py`: Decisión humana atómica (incluyendo desvío R06), retención por traslado, liberación explícita y reclasificación R07.
+- **API REST (`/api/v1/*`)**: `health`, `catalog`, `requests` (incl. `simulate`, `{id}/reclassify`), `recommendations/evaluate`, `fleet/*`, `analytics/*`, `decisions`, `config/scoring`, `benchmarks/*` (`kpis`, `scenarios`, `scenarios/{id}/evaluate`), `simulation/*` (`state`, `positions`, `arrive/{id}`, `complete/{id}`, `release/{id}`, `advance-clock`, `generate`).
+- **Frontend Next.js 16**: Pantallas `/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`, `/benchmarks` y `/simulation`. En Despacho se resalta el aviso `Regla R06:` antes de confirmar (siempre en segundo clic), se marca `PREDICHO` en retención y se omiten `OBSERVADO`/`CALCULADO`. En Simulación, el cierre `TRASLADADO` muestra estado «en retención» y botón «Reportar liberación».
 
-## Decisiones Técnicas y Limitaciones
-- Sin GPS, coordenadas ni distancias: no se calcula costo operativo ni cobertura geográfica real (desactivados en MCDM).
-- El tiempo esperado es contextual histórico/ML, nunca ETA individual por GPS.
-- La app usa Supabase (`DATABASE_URL` en `backend/.env`, revisión `fb8e822f8f09`, dataset mínimo ingerido). Docker local (`localhost:5433`) queda para tests y CI.
+## Decisiones Técnicas y Alcance
+- **Fuente de tiempo esperado**: Combina matriz O-D × tráfico, distancia Haversine desde posición simulada/en vivo e histórico/ML (no usa telemetría GPS externa de producción).
+- **Replay sin efectos secundarios**: `scenario_replay.py` corre completamente en memoria sobre las hojas de `06_escenarios_referencia.xlsx` y no escribe en `decision.dispatch_decisions` ni en `core.audit_events`.
+- **Base de datos**: Supabase (`DATABASE_URL` en `backend/.env`) para ejecución; Docker local (`localhost:5433`) para tests (`tests/conftest.py`).
 
-## Pendientes técnicos
-
-- Sin pendientes técnicos abiertos. (La recarga del dataset con decisiones registradas se resolvió con
-  la carga incremental de `app/services/ingestion_service.py`.)
-
-## Pendientes funcionales
-
-- **Cambiar el estado de una unidad desde Flota** (pedido 2026-11-20, aplazado). Falta decidir qué estado:
-  - *Fuera de servicio / en servicio*: el interruptor `raw.units.active` ya existe y la elegibilidad lo
-    respeta (`INACTIVE`, "Unidad fuera de servicio operativo"), pero ningún endpoint ni pantalla lo cambia.
-  - *Liberar una ocupación simulada*: una unidad que terminó antes de lo previsto (quitar su entrada de
-    `core.simulation_sessions.active_assignments_json`).
-  - A resolver al diseñarlo: la carga incremental pone `active = true` a todas las unidades del CSV y
-    borraría un cambio manual; el cambio debe quedar en `core.audit_events` firmado por el despachador.
+## Fuera de alcance (aplazado)
+- Modelo ML dedicado de probabilidad de traslado (hoy D06 usa motivos de consulta de traslado probable).
+- Puerta automática de triage telefónico previo a la cola.
+- Optimización *lookahead* multi-paso sobre demanda futura.
+- Modelado de *drift* o congestión dinámica por clínica en tiempo real.
+- Replay histórico masivo de los 10.402 servicios.
+- Cambio manual de `raw.units.active` (fuera de servicio / en servicio) desde la pantalla de Flota.
