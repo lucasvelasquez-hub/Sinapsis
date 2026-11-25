@@ -8,6 +8,7 @@ import type {
   EligibilityEvaluation,
   HealthResponse,
   KpisOverview,
+  ReclassifyOut,
   RecommendationOut,
   RequestDetail,
   RequestSummary,
@@ -111,6 +112,21 @@ export const coreApi = {
       body: JSON.stringify(payload),
     }),
 
+  reclassifyRequest: (
+    serviceId: string,
+    payload: {
+      urgency_level: UrgencyLevel;
+      origen: "RECLASIFICACION_TELEFONICA" | "RECLASIFICACION_EN_SITIO";
+      motivo_consulta: string;
+      discriminador: string;
+      dispatcher_id: string;
+    }
+  ) =>
+    apiFetch<ReclassifyOut>(`/requests/${serviceId}/reclassify`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    }),
+
   getEligibility: (requestId: string) =>
     apiFetch<EligibilityEvaluation>(`/fleet/eligibility/${requestId}`),
 
@@ -180,6 +196,11 @@ export const coreApi = {
     apiFetch<CompleteServiceOut>(`/simulation/complete/${serviceId}`, {
       method: "POST",
       body: payload ? JSON.stringify(payload) : undefined,
+    }),
+
+  releaseSimulationUnit: (serviceId: string) =>
+    apiFetch<CompleteServiceOut>(`/simulation/release/${serviceId}`, {
+      method: "POST",
     }),
 
   advanceSimulationClock: (minutes: number) =>

@@ -337,4 +337,29 @@ describe("DecisionPanel — fallos y datos desfasados", () => {
 
     expect(screen.getAllByText(/ML_CONTEXTUAL_PREDICTION/).length).toBe(3);
   });
+
+  it("shows full R06 diversion notice before Confirmar and only dispatches on confirm", async () => {
+    const r06Text =
+      "Regla R06: desvía MOV-1 del servicio SRV-1; ese servicio vuelve a la cola";
+    const record = vi
+      .spyOn(coreApi, "recordDecision")
+      .mockResolvedValue(DECISION);
+    const rec = recommendation("SIM-0004");
+    rec.candidates[0] = {
+      ...rec.candidates[0],
+      factors: [...rec.candidates[0].factors, r06Text],
+      diversion_of_service_id: "SRV-1",
+    };
+    withRecommendation(rec);
+    renderPanel();
+
+    fireEvent.click(radio("MOV-024"));
+
+    expect(record).not.toHaveBeenCalled();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(r06Text);
+
+    fireEvent.click(button(/confirmar/i));
+    await waitFor(() => expect(record).toHaveBeenCalledOnce());
+  });
 });

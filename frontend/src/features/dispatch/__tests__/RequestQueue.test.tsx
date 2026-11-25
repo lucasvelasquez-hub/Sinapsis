@@ -116,4 +116,25 @@ describe("RequestQueue — procedencia y fecha", () => {
     expect(hist.textContent).not.toMatch(/simulada/i);
     expect(sim.textContent).toContain("10-29 23:47");
   });
+
+  it("preserves API order when a newer 01 comes before an older 06", () => {
+    renderQueue([
+      request("SIM-01", {
+        urgency_level: "01",
+        request_datetime: "2026-10-29T10:15:00",
+      }),
+      request("SIM-06", {
+        urgency_level: "06",
+        request_datetime: "2026-10-29T09:00:00",
+      }),
+    ]);
+
+    const items = screen
+      .getAllByRole("button")
+      .filter((b) => /SIM-0[16]/.test(b.textContent ?? ""));
+    expect(items.map((b) => b.textContent)).toEqual([
+      expect.stringContaining("SIM-01"),
+      expect.stringContaining("SIM-06"),
+    ]);
+  });
 });

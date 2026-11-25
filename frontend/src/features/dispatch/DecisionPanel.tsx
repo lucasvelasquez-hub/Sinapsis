@@ -146,6 +146,13 @@ export function DecisionPanel({
     : [];
   const others =
     rec && eligibility ? otherAvailableUnits(rec, eligibility) : [];
+  const selectedCandidate =
+    selection?.kind === "candidate"
+      ? rec?.candidates.find((c) => c.unit_id === selection.unitId)
+      : undefined;
+  const r06Factor = selectedCandidate?.factors.find((f) =>
+    f.includes("Regla R06:"),
+  );
   const needsReason = selection?.kind === "manual";
   const canConfirm =
     Boolean(rec && selection && dispatcherId) &&
@@ -275,27 +282,38 @@ export function DecisionPanel({
           )}
 
           {selection && (
-            <div
-              className={cn(
-                "sticky bottom-0 flex items-center justify-between gap-4 rounded-lg border border-l-4 border-slate-700 bg-slate-950 px-4 py-3 shadow-lg shadow-black/40",
-                URGENCY_EDGE[detail.urgency_level] ?? "border-l-slate-500",
+            <div className="sticky bottom-0 space-y-2">
+              {r06Factor && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-lg border border-amber-500/50 bg-amber-500/15 px-3 py-2 text-xs text-amber-100"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <span>{r06Factor}</span>
+                </div>
               )}
-            >
-              <span className="font-mono text-lg font-bold text-slate-50">
-                {confirmLabel(selection, detail.service_id)}
-              </span>
-              <button
-                type="button"
-                disabled={!canConfirm}
-                onClick={confirm}
-                className="shrink-0 rounded-md bg-cyan-500 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+              <div
+                className={cn(
+                  "flex items-center justify-between gap-4 rounded-lg border border-l-4 border-slate-700 bg-slate-950 px-4 py-3 shadow-lg shadow-black/40",
+                  URGENCY_EDGE[detail.urgency_level] ?? "border-l-slate-500",
+                )}
               >
-                {decisionMutation.isPending
-                  ? "Registrando…"
-                  : selection.kind === "manual" && selection.unitId === null
-                    ? "Confirmar rechazo"
-                    : "Confirmar despacho"}
-              </button>
+                <span className="font-mono text-lg font-bold text-slate-50">
+                  {confirmLabel(selection, detail.service_id)}
+                </span>
+                <button
+                  type="button"
+                  disabled={!canConfirm}
+                  onClick={confirm}
+                  className="shrink-0 rounded-md bg-cyan-500 px-5 py-2 text-sm font-bold text-slate-950 hover:bg-cyan-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-300"
+                >
+                  {decisionMutation.isPending
+                    ? "Registrando…"
+                    : selection.kind === "manual" && selection.unitId === null
+                      ? "Confirmar rechazo"
+                      : "Confirmar despacho"}
+                </button>
+              </div>
             </div>
           )}
           {selection && !dispatcherId && (
@@ -436,12 +454,29 @@ function CandidateOption({
         )}
       </div>
       <ul className="mt-1.5 space-y-0.5 pl-7 text-xs text-emerald-200">
-        {cand.factors.map((f, i) => (
-          <li key={i} className="flex items-start gap-1.5">
-            <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
-            <span>{f}</span>
-          </li>
-        ))}
+        {cand.factors.map((f, i) => {
+          const isR06 = f.includes("Regla R06:");
+          const isRetention = /retenci[oó]n|D08/i.test(f);
+          return (
+            <li
+              key={i}
+              className={cn(
+                "flex items-start gap-1.5",
+                isR06 && "text-amber-200 font-medium",
+              )}
+            >
+              {isR06 ? (
+                <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0 text-amber-300" />
+              ) : (
+                <CheckCircle2 className="mt-0.5 h-3 w-3 shrink-0" />
+              )}
+              <span className="flex flex-wrap items-center gap-1.5">
+                <span>{f}</span>
+                {isRetention && <ProvenanceBadge type="PREDICHO" />}
+              </span>
+            </li>
+          );
+        })}
       </ul>
       {ownWarnings.length > 0 && (
         <ul className="mt-1 space-y-0.5 pl-7 text-xs text-amber-200">
