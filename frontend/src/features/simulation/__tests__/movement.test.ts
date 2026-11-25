@@ -6,6 +6,7 @@ import {
   computeEffectiveSpeedKmh,
   computeStepKm,
   haversineKm,
+  resolveUnitOperationalState,
 } from "../movement";
 
 describe("simulation movement physics", () => {
@@ -49,5 +50,50 @@ describe("simulation movement physics", () => {
     expect(res.routeIdx).toBe(1);
     expect(res.lat).toBe(end[0]);
     expect(res.lon).toBe(end[1]);
+  });
+
+  it("transitions unit state from EN_RUTA to EN_ATENCION on arrival per EMI rules", () => {
+    const unit = {
+      unit_id: "MOV-001",
+      base_id: "BAS-01",
+      active: true,
+      simulated_available: false,
+      current_zone_id: "Z-MED-11-01",
+    };
+    const bases = new Map([["BAS-01", { zone_id: "Z-MED-10-01" }]]);
+
+    // En camino (sin arrival_datetime) -> EN_RUTA
+    expect(
+      resolveUnitOperationalState(
+        unit,
+        [{ status: "DISPATCHED", assigned_unit_id: "MOV-001", arrival_datetime: null }],
+        bases
+      )
+    ).toBe("EN_RUTA");
+
+    // Llegó al sitio (con arrival_datetime) -> EN_ATENCION
+    expect(
+      resolveUnitOperationalState(
+        unit,
+        [
+          {
+            status: "DISPATCHED",
+            assigned_unit_id: "MOV-001",
+            arrival_datetime: "2026-10-30T03:40:00",
+          },
+        ],
+        bases
+      )
+    ).toBe("EN_ATENCION");
+
+    // Libre fuera de su base -> RETORNANDO
+    expect(
+      resolveUnitOperationalState({ ...unit, simulated_available: true }, [], bases)
+    ).toBe("RETORNANDO");
+
+    // Inactiva -> FUERA_SERVICIO
+    expect(
+      resolveUnitOperationalState({ ...unit, active: false }, [], bases)
+    ).toBe("FUERA_SERVICIO");
   });
 });

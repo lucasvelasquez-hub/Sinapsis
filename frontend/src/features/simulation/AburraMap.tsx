@@ -6,6 +6,8 @@ import { useEffect, useRef } from "react";
 
 import type { SimBase, SimCareCenter, SimRequest, SimUnit, SimZone } from "@/types/core";
 
+import { resolveUnitOperationalState } from "./movement";
+
 export interface LivePos {
   lat: number;
   lon: number;
@@ -19,6 +21,60 @@ const UNIT_COLOR: Record<string, string> = {
   TAB: "#fb923c",
   VMD: "#22d3ee",
 };
+
+function createBaseIcon(): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    iconSize: [14, 14],
+    iconAnchor: [7, 7],
+    html: `<div style="width:12px;height:12px;transform:rotate(45deg);background:#8b5cf6;border:1.5px solid #c4b5fd;box-shadow:0 0 6px rgba(139,92,246,0.6);"></div>`,
+  });
+}
+
+function createClinicIcon(): L.DivIcon {
+  return L.divIcon({
+    className: "",
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+    html: `<svg width="18" height="18" viewBox="0 0 18 18" style="filter:drop-shadow(0 0 4px rgba(16,185,129,0.65));">
+      <path d="M6.5 1.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z" fill="#10b981" stroke="#a7f3d0" stroke-width="1.3" stroke-linejoin="round"/>
+    </svg>`,
+  });
+}
+
+function createUnitIcon({
+  fillColor,
+  borderColor,
+  size,
+  borderWidth,
+  dashed,
+  opacity,
+  isEnRoute,
+}: {
+  fillColor: string;
+  borderColor: string;
+  size: number;
+  borderWidth: number;
+  dashed: boolean;
+  opacity: number;
+  isEnRoute: boolean;
+}): L.DivIcon {
+  const box = size + 12;
+  const half = box / 2;
+  const ping = isEnRoute
+    ? `<span class="animate-ping" style="position:absolute;inset:2px;border-radius:9999px;background:${fillColor};opacity:0.75;"></span>`
+    : "";
+  const blinkClass = isEnRoute ? "animate-pulse" : "";
+  return L.divIcon({
+    className: "",
+    iconSize: [box, box],
+    iconAnchor: [half, half],
+    html: `<div style="position:relative;width:${box}px;height:${box}px;display:flex;align-items:center;justify-content:center;">
+      ${ping}
+      <span class="${blinkClass}" style="position:relative;width:${size}px;height:${size}px;border-radius:9999px;background:${fillColor};border:${borderWidth}px ${dashed ? "dashed" : "solid"} ${borderColor};opacity:${opacity};box-shadow:0 0 6px rgba(15,23,42,0.85);"></span>
+    </div>`,
+  });
+}
 
 export default function AburraMap({
   zones,
@@ -45,7 +101,7 @@ export default function AburraMap({
     zones: L.LayerGroup;
     bases: L.LayerGroup;
     requests: L.LayerGroup;
-    units: Map<string, L.CircleMarker>;
+    units: Map<string, { marker: L.Marker; styleKey: string }>;
   } | null>(null);
 
   // Initialize Leaflet map once
@@ -102,25 +158,15 @@ export default function AburraMap({
     }
 
     layers.bases.clearLayers();
+    const baseIcon = createBaseIcon();
     for (const b of bases) {
-      L.circleMarker([b.lat, b.lon], {
-        radius: 5,
-        color: "#c4b5fd",
-        weight: 1.5,
-        fillColor: "#8b5cf6",
-        fillOpacity: 0.9,
-      })
+      L.marker([b.lat, b.lon], { icon: baseIcon })
         .bindTooltip(`Base ${b.base_id} · ${b.name}`)
         .addTo(layers.bases);
     }
+    const clinicIcon = createClinicIcon();
     for (const c of careCenters) {
-      L.circleMarker([c.lat, c.lon], {
-        radius: 5.5,
-        color: "#6ee7b7",
-        weight: 1.5,
-        fillColor: "#10b981",
-        fillOpacity: 0.85,
-      })
+      L.marker([c.lat, c.lon], { icon: clinicIcon })
         .bindTooltip(`${c.center_id} · ${c.name} (${c.complexity_level})`)
         .addTo(layers.bases);
     }
@@ -167,47 +213,74 @@ export default function AburraMap({
     const layers = layersRef.current;
     if (!map || !layers) return;
 
+    const basesById = new Map(bases.map((b) => [b.base_id, b]));
+
     for (const u of units) {
       const pos = liveMap[u.unit_id];
       const lat = pos?.lat ?? u.lat;
       const lon = pos?.lon ?? u.lon;
+      const opState = resolveUnitOperationalState(u, activeRequests, basesById);
+      const isEnRoute = opState === "EN_RUTA";
+      const isInAttention = opState === "EN_ATENCION";
       const baseColor = UNIT_COLOR[u.unit_type] ?? "#e2e8f0";
-      const fillColor = !u.active ? "#334155" : u.simulated_available ? baseColor : "#475569";
+      const fillColor =
+        opState === "FUERA_SERVICIO"
+          ? "#334155"
+          : opState === "EN_TRASLADO"
+          ? "#475569"
+          : baseColor;
       const isSelected = selectedUnitId === u.unit_id;
-      const statusLabel = !u.active
-        ? "FUERA DE SERVICIO"
-        : u.simulated_available
-        ? "DISPONIBLE"
-        : "OCUPADA";
+      const borderColor = isSelected
+        ? "#ffffff"
+        : opState === "FUERA_SERVICIO"
+        ? "#94a3b8"
+        : isInAttention
+        ? "#fbbf24"
+        : "#0f172a";
+      const styleKey = `${fillColor}|${borderColor}|${opState}|${isSelected}`;
 
-      let marker = layers.units.get(u.unit_id);
-      if (!marker) {
-        marker = L.circleMarker([lat, lon], {
-          radius: isSelected ? 9 : 6.5,
-          color: isSelected ? "#ffffff" : !u.active ? "#94a3b8" : "#0f172a",
-          weight: isSelected ? 2.5 : 1.5,
-          dashArray: !u.active ? "3 3" : undefined,
+      const entry = layers.units.get(u.unit_id);
+      if (!entry) {
+        const icon = createUnitIcon({
           fillColor,
-          fillOpacity: !u.active ? 0.55 : 0.95,
+          borderColor,
+          size: isSelected ? 18 : 13,
+          borderWidth: isSelected || isInAttention ? 2.5 : 1.5,
+          dashed: opState === "FUERA_SERVICIO",
+          opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
+          isEnRoute,
+        });
+        const marker = L.marker([lat, lon], {
+          icon,
+          zIndexOffset: isSelected ? 400 : isEnRoute ? 300 : isInAttention ? 250 : 100,
         })
-          .bindTooltip(`${u.unit_id} (${u.unit_type}) · ${statusLabel}`, { direction: "top" })
+          .bindTooltip(`${u.unit_id} (${u.unit_type}) · ${opState}`, { direction: "top" })
           .on("click", () => onSelectUnit(u.unit_id))
           .addTo(map);
-        layers.units.set(u.unit_id, marker);
+        layers.units.set(u.unit_id, { marker, styleKey });
       } else {
-        marker.setLatLng([lat, lon]);
-        marker.setTooltipContent(`${u.unit_id} (${u.unit_type}) · ${statusLabel}`);
-        marker.setStyle({
-          radius: isSelected ? 9 : 6.5,
-          color: isSelected ? "#ffffff" : !u.active ? "#94a3b8" : "#0f172a",
-          weight: isSelected ? 2.5 : 1.5,
-          dashArray: !u.active ? "3 3" : undefined,
-          fillColor,
-          fillOpacity: !u.active ? 0.55 : 0.95,
-        });
+        entry.marker.setLatLng([lat, lon]);
+        entry.marker.setTooltipContent(`${u.unit_id} (${u.unit_type}) · ${opState}`);
+        if (entry.styleKey !== styleKey) {
+          entry.marker.setIcon(
+            createUnitIcon({
+              fillColor,
+              borderColor,
+              size: isSelected ? 18 : 13,
+              borderWidth: isSelected || isInAttention ? 2.5 : 1.5,
+              dashed: opState === "FUERA_SERVICIO",
+              opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
+              isEnRoute,
+            })
+          );
+          entry.marker.setZIndexOffset(
+            isSelected ? 400 : isEnRoute ? 300 : isInAttention ? 250 : 100
+          );
+          entry.styleKey = styleKey;
+        }
       }
     }
-  }, [units, liveMap, selectedUnitId, onSelectUnit]);
+  }, [units, bases, activeRequests, liveMap, selectedUnitId, onSelectUnit]);
 
   return (
     <div

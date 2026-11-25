@@ -92,6 +92,22 @@ def get_simulation_state(db: Session) -> SimulationStateOut:
     roaming_zones = resolve_units_current_zone(db, units, bases_by_id, ref_dt, sim)
     live_pos = get_live_positions(sim)
 
+    active_rows = (
+        db.execute(
+            select(RawService)
+            .where(RawService.status.in_([ServiceStatus.PENDING, ServiceStatus.DISPATCHED]))
+            .order_by(RawService.request_datetime.desc())
+            .limit(100)
+        )
+        .scalars()
+        .all()
+    )
+    dispatched_by_unit = {
+        s.assigned_unit_id: s
+        for s in active_rows
+        if s.status == ServiceStatus.DISPATCHED and s.assigned_unit_id
+    }
+
     sim_units: list[SimUnitOut] = []
     for u in units:
         pos = live_pos.get(u.unit_id)
@@ -109,13 +125,28 @@ def get_simulation_state(db: Session) -> SimulationStateOut:
         else:
             lat, lon = 6.2442, -75.5812
 
+        is_available = u.active and busy[u.unit_id] is None
+        assigned_srv = dispatched_by_unit.get(u.unit_id)
+        # Estados oficiales de la móvil según Doc 04 Sec. 5:
+        if not u.active:
+            op_state = "FUERA_SERVICIO"
+        elif assigned_srv is not None:
+            op_state = "EN_ATENCION" if assigned_srv.arrival_datetime is not None else "EN_RUTA"
+        elif not is_available:
+            op_state = "EN_TRASLADO"
+        elif base is not None and z_id is not None and z_id != base.zone_id:
+            op_state = "RETORNANDO"
+        else:
+            op_state = "DISPONIBLE"
+
         sim_units.append(
             SimUnitOut(
                 unit_id=u.unit_id,
                 unit_type=u.unit_type,
                 base_id=u.base_id,
                 active=u.active,
-                simulated_available=u.active and busy[u.unit_id] is None,
+                simulated_available=is_available,
+                operational_state=op_state,
                 busy_until=busy[u.unit_id],
                 current_zone_id=z_id,
                 lat=lat,
@@ -123,16 +154,6 @@ def get_simulation_state(db: Session) -> SimulationStateOut:
             )
         )
 
-    active_rows = (
-        db.execute(
-            select(RawService)
-            .where(RawService.status.in_([ServiceStatus.PENDING, ServiceStatus.DISPATCHED]))
-            .order_by(RawService.request_datetime.desc())
-            .limit(100)
-        )
-        .scalars()
-        .all()
-    )
     active_requests: list[SimRequestOut] = []
     for s in active_rows:
         z = zones_by_id.get(s.zone_id)

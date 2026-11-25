@@ -1,3 +1,5 @@
+import type { SimBase, SimRequest, SimUnit, UnitOperationalState } from "@/types/core";
+
 export const BASE_SPEED_KMH = 50;
 export const SIM_TICK_MS = 500;
 const MIN_TRAFFIC_FACTOR = 0.75;
@@ -90,3 +92,50 @@ export function advanceAlongRoute(
   const [lastLat, lastLon] = route[route.length - 1];
   return { lat: lastLat, lon: lastLon, routeIdx: route.length - 1, reachedEnd: true };
 }
+
+/**
+ * Resolves the official EMI operational state (Doc 04 Sec. 5) for a mobile unit.
+ * Transitions automatically from EN_RUTA -> EN_ATENCION when arrival_datetime is recorded.
+ */
+export function resolveUnitOperationalState(
+  unit: Pick<SimUnit, "unit_id" | "base_id" | "active" | "simulated_available" | "current_zone_id" | "operational_state">,
+  activeRequests: ReadonlyArray<Pick<SimRequest, "status" | "assigned_unit_id" | "arrival_datetime">>,
+  basesById?: ReadonlyMap<string, Pick<SimBase, "zone_id">>
+): UnitOperationalState {
+  if (!unit.active) return "FUERA_SERVICIO";
+
+  const assigned = activeRequests.find(
+    (r) => r.status === "DISPATCHED" && r.assigned_unit_id === unit.unit_id
+  );
+  if (assigned) {
+    return assigned.arrival_datetime ? "EN_ATENCION" : "EN_RUTA";
+  }
+
+  if (!unit.simulated_available) {
+    return unit.operational_state === "EN_ATENCION" ? "EN_ATENCION" : "EN_TRASLADO";
+  }
+
+  const baseZone = basesById?.get(unit.base_id)?.zone_id;
+  if (baseZone && unit.current_zone_id && unit.current_zone_id !== baseZone) {
+    return "RETORNANDO";
+  }
+  return unit.operational_state === "RETORNANDO" ? "RETORNANDO" : "DISPONIBLE";
+}
+
+export const OPERATIONAL_STATE_LABEL: Record<UnitOperationalState, string> = {
+  DISPONIBLE: "DISPONIBLE",
+  RETORNANDO: "RETORNANDO",
+  EN_RUTA: "EN_RUTA",
+  EN_ATENCION: "EN_ATENCION",
+  EN_TRASLADO: "EN_TRASLADO",
+  FUERA_SERVICIO: "FUERA_SERVICIO",
+};
+
+export const OPERATIONAL_STATE_COLOR: Record<UnitOperationalState, string> = {
+  DISPONIBLE: "text-emerald-300",
+  RETORNANDO: "text-sky-300",
+  EN_RUTA: "text-cyan-300",
+  EN_ATENCION: "text-amber-300",
+  EN_TRASLADO: "text-violet-300",
+  FUERA_SERVICIO: "text-slate-400",
+};

@@ -24,6 +24,8 @@ import {
   computeEffectiveSpeedKmh,
   computeStepKm,
   haversineKm,
+  OPERATIONAL_STATE_COLOR,
+  resolveUnitOperationalState,
   SIM_TICK_MS,
 } from "@/features/simulation/movement";
 import { coreApi } from "@/lib/api";
@@ -122,6 +124,27 @@ export default function SimulationPage() {
 
   const arriveMutation = useMutation({
     mutationFn: coreApi.arriveSimulationService,
+    onMutate: (serviceId) => {
+      // Transición inmediata EN_RUTA -> EN_ATENCION al llegar al paciente (Doc 04 Sec. 5)
+      queryClient.setQueryData(["simulation-state"], (old: typeof stateQuery.data) => {
+        if (!old) return old;
+        const target = old.active_requests.find((r) => r.service_id === serviceId);
+        const nowIso = old.current_sim_datetime || new Date().toISOString();
+        return {
+          ...old,
+          active_requests: old.active_requests.map((r) =>
+            r.service_id === serviceId
+              ? { ...r, arrival_datetime: r.arrival_datetime ?? nowIso }
+              : r
+          ),
+          units: old.units.map((u) =>
+            target?.assigned_unit_id && u.unit_id === target.assigned_unit_id
+              ? { ...u, operational_state: "EN_ATENCION" as const }
+              : u
+          ),
+        };
+      });
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
     },
@@ -386,6 +409,10 @@ export default function SimulationPage() {
 
   const selectedUnit: SimUnit | undefined = units.find((u) => u.unit_id === selectedUnitId);
   const selectedPos = selectedUnitId ? liveMap[selectedUnitId] : undefined;
+  const basesById = useMemo(() => new Map(bases.map((b) => [b.base_id, b])), [bases]);
+  const selectedOpState = selectedUnit
+    ? resolveUnitOperationalState(selectedUnit, activeRequests, basesById)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -472,12 +499,18 @@ export default function SimulationPage() {
         {/* Map Panel */}
         <div className="col-span-8 rounded-lg border border-slate-800 bg-slate-950 p-3">
           <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-wrap items-center gap-4">
               <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-rose-400" /> TAM</span>
               <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-orange-400" /> TAB</span>
               <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" /> VMD</span>
+              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 ring-2 ring-cyan-400/50" /> En camino</span>
               <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 bg-violet-400" /> Base</span>
-              <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-emerald-400" /> Clínica</span>
+              <span className="flex items-center gap-1">
+                <svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true">
+                  <path d="M6.5 1.5h5v5h5v5h-5v5h-5v-5h-5v-5h5z" fill="#10b981" stroke="#a7f3d0" strokeWidth="1.4" />
+                </svg>
+                Clínica
+              </span>
               <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full ring-2 ring-amber-300" /> Paciente activo</span>
             </div>
             <span className="font-mono text-slate-500">
@@ -496,25 +529,13 @@ export default function SimulationPage() {
             onSelectUnit={setSelectedUnitId}
           />
 
-          {selectedUnit && (
+          {selectedUnit && selectedOpState && (
             <div className="mt-2 flex flex-wrap items-center justify-between rounded border border-slate-800 bg-slate-900/70 px-3 py-2 text-xs">
               <div>
                 <span className="font-mono font-bold text-white">{selectedUnit.unit_id}</span>{" "}
                 <span className="text-slate-300">({selectedUnit.unit_type})</span> ·{" "}
-                <span
-                  className={
-                    !selectedUnit.active
-                      ? "text-slate-400"
-                      : selectedUnit.simulated_available
-                      ? "text-emerald-300"
-                      : "text-amber-300"
-                  }
-                >
-                  {!selectedUnit.active
-                    ? "Fuera de servicio (mantenimiento)"
-                    : selectedUnit.simulated_available
-                    ? "Disponible"
-                    : "Ocupada"}
+                <span className={`font-mono font-semibold ${OPERATIONAL_STATE_COLOR[selectedOpState]}`}>
+                  {selectedOpState}
                 </span>
               </div>
               <div className="font-mono text-slate-300">
@@ -565,7 +586,12 @@ export default function SimulationPage() {
                           URGENCY_BADGE[r.urgency_level] ?? "border-slate-600 text-slate-300"
                         }`}
                       >
-                        {r.urgency_level} · {r.arrival_datetime ? "EN SITIO" : r.status}
+                        {r.urgency_level} ·{" "}
+                        {r.status === "DISPATCHED"
+                          ? r.arrival_datetime
+                            ? "EN_ATENCION"
+                            : "EN_RUTA"
+                          : r.status}
                       </span>
                     </div>
                     <div className="mt-1 text-slate-300">

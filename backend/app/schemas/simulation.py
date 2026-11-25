@@ -36,6 +36,7 @@ class SimUnitOut(BaseModel):
     base_id: str
     active: bool
     simulated_available: bool
+    operational_state: str = "DISPONIBLE"
     busy_until: datetime | None = None
     current_zone_id: str | None = None
     lat: float

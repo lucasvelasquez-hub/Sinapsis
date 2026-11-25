@@ -310,12 +310,21 @@ export interface SimCareCenter {
   lon: number;
 }
 
+export type UnitOperationalState =
+  | "DISPONIBLE"
+  | "RETORNANDO"
+  | "EN_RUTA"
+  | "EN_ATENCION"
+  | "EN_TRASLADO"
+  | "FUERA_SERVICIO";
+
 export interface SimUnit {
   unit_id: string;
   unit_type: string;
   base_id: string;
   active: boolean;
   simulated_available: boolean;
+  operational_state?: UnitOperationalState;
   busy_until: string | null;
   current_zone_id: string | null;
   lat: number;
