@@ -75,7 +75,12 @@ export interface DecisionCreatePayload {
 }
 
 export const coreApi = {
-  getHealth: () => apiFetch<HealthResponse>("/health"),
+  getHealth: () =>
+    apiFetch<HealthResponse>("/health", {
+      signal: typeof AbortSignal !== "undefined" && "timeout" in AbortSignal
+        ? AbortSignal.timeout(10_000)
+        : undefined,
+    }),
 
   getCatalog: () => apiFetch<Catalog>("/catalog"),
 

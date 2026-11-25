@@ -32,12 +32,42 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: coreApi.getHealth,
-    refetchInterval: 30_000,
+    retry: 2,
+    retryDelay: 1500,
+    refetchOnWindowFocus: true,
+    refetchInterval: (query) => (query.state.data?.status === "ok" ? 30_000 : 5_000),
   });
   const overviewQuery = useQuery({
     queryKey: ["analytics-overview"],
     queryFn: coreApi.getAnalyticsOverview,
   });
+
+  const healthStatus =
+    healthQuery.data?.status === "ok"
+      ? "online"
+      : healthQuery.isPending
+        ? "checking"
+        : healthQuery.data?.status === "degraded"
+          ? "degraded"
+          : "offline";
+
+  const healthLabel =
+    healthStatus === "online"
+      ? "API ONLINE"
+      : healthStatus === "checking"
+        ? "API ..."
+        : healthStatus === "degraded"
+          ? "DB DEGRADED"
+          : "API OFFLINE";
+
+  const healthTooltip =
+    healthStatus === "online"
+      ? `API y DB conectados (${healthQuery.data?.version ?? ""}). Click para verificar.`
+      : healthStatus === "checking"
+        ? "Verificando conexión con la API..."
+        : healthStatus === "degraded"
+          ? "API activa pero sin conexión a la base de datos. Reintentando cada 5s (click para reintentar ahora)."
+          : `Sin conexión con la API${healthQuery.error instanceof Error ? `: ${healthQuery.error.message}` : ""}. Reintentando cada 5s (click para reintentar ahora).`;
 
   return (
     <div className="flex min-h-screen bg-slate-950 text-slate-100">
@@ -111,24 +141,35 @@ export function PlatformShell({ children }: { children: React.ReactNode }) {
           </div>
 
           <div className="flex items-center gap-3 text-xs">
-            <span
+            <button
+              type="button"
+              onClick={() => void healthQuery.refetch()}
+              title={healthTooltip}
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px]",
-                healthQuery.data?.status === "ok"
+                "inline-flex cursor-pointer items-center gap-1.5 rounded-full border px-2.5 py-0.5 font-mono text-[11px] transition-opacity hover:opacity-80",
+                healthStatus === "online"
                   ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-300"
-                  : "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                  : healthStatus === "checking"
+                    ? "border-slate-600/60 bg-slate-800/60 text-slate-300"
+                    : healthStatus === "degraded"
+                      ? "border-amber-500/40 bg-amber-500/10 text-amber-300"
+                      : "border-rose-500/40 bg-rose-500/10 text-rose-300"
               )}
             >
               <span
                 className={cn(
                   "h-1.5 w-1.5 rounded-full",
-                  healthQuery.data?.status === "ok"
+                  healthStatus === "online"
                     ? "bg-emerald-400"
-                    : "bg-amber-400"
+                    : healthStatus === "checking"
+                      ? "animate-pulse bg-slate-400"
+                      : healthStatus === "degraded"
+                        ? "bg-amber-400"
+                        : "bg-rose-400"
                 )}
               />
-              API {healthQuery.data?.status === "ok" ? "ONLINE" : "CHECK"}
-            </span>
+              {healthLabel}
+            </button>
           </div>
         </header>
 
