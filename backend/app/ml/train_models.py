@@ -4,6 +4,8 @@ Evaluates:
 1. Statistical Baseline (contextual historical median by urgency, service_type, zone)
 2. Linear Regression (Ridge with OneHotEncoder)
 3. Random Forest Regressor
+4. Gradient boosting (HistGradientBoosting, loss=absolute_error): estima la mediana
+   condicional, que es lo que mide el MAE.
 
 Strict chronological split: 70% train, 15% validation, 15% test.
 No temporal leakage: uses only features known at request_datetime.
@@ -19,11 +21,11 @@ import numpy as np
 import pandas as pd
 from sklearn.base import clone
 from sklearn.compose import ColumnTransformer
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import HistGradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_absolute_error, root_mean_squared_error
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, OrdinalEncoder
 from sqlalchemy import delete
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent.parent
@@ -32,6 +34,7 @@ sys.path.insert(0, str(BACKEND_DIR))
 from app.core.database import SessionLocal, engine
 from app.ml.artifact import build_manifest, save_artifact
 from app.ml.baseline import ContextualStatisticalBaseline
+from app.ml.demand import demand_features
 from app.ml.features import (
     CATEGORICAL_COLUMNS,
     FEATURE_COLUMNS,
@@ -90,6 +93,24 @@ def train_and_evaluate() -> dict:
         ORDER BY s.request_datetime ASC, s.service_id ASC
     """
     raw = pd.read_sql(query, engine)
+    # Demanda previa sobre TODO el historial (también solicitudes sin tiempo de respuesta),
+    # con la misma función que el serving (request_demand): sin desvío train/serve.
+    history = pd.read_sql("SELECT zone_id, request_datetime FROM raw.services", engine)
+    history["request_datetime"] = pd.to_datetime(history["request_datetime"])
+    system_ts = sorted(history["request_datetime"].tolist())
+    zone_ts = {
+        zone: sorted(group.tolist())
+        for zone, group in history.groupby("zone_id")["request_datetime"]
+    }
+    demand = pd.DataFrame(
+        [
+            demand_features(ts, zone_ts.get(zone, []), system_ts)
+            for ts, zone in zip(
+                pd.to_datetime(raw["request_datetime"]), raw["zone_id"], strict=True
+            )
+        ]
+    )
+    raw = pd.concat([raw, demand], axis=1)
     # Same feature construction as serving (prediction_service): no train/serve skew.
     df = build_feature_frame(raw.to_dict("records"))
     df["response_time_min"] = raw["response_time_min"].to_numpy()
@@ -147,10 +168,52 @@ def train_and_evaluate() -> dict:
         test_df["response_time_min"].to_numpy(), rf_pipe.predict(test_df[feature_cols])
     )
 
+    # 4. Gradient boosting con categóricas nativas (códigos ordinales; desconocidas -> -1 = missing)
+    cat_idx = list(range(len(cat_cols)))
+    hgb_pipe = Pipeline(
+        [
+            (
+                "prep",
+                ColumnTransformer(
+                    transformers=[
+                        (
+                            "cat",
+                            OrdinalEncoder(handle_unknown="use_encoded_value", unknown_value=-1),
+                            cat_cols,
+                        ),
+                        ("num", "passthrough", num_cols),
+                    ]
+                ),
+            ),
+            (
+                "model",
+                HistGradientBoostingRegressor(
+                    loss="absolute_error",
+                    max_iter=400,
+                    learning_rate=0.05,
+                    max_leaf_nodes=31,
+                    min_samples_leaf=40,
+                    l2_regularization=1.0,
+                    categorical_features=cat_idx,
+                    early_stopping=False,
+                    random_state=42,
+                ),
+            ),
+        ]
+    )
+    hgb_pipe.fit(train_df[feature_cols], train_df["response_time_min"])
+    hgb_val = compute_metrics(
+        val_df["response_time_min"].to_numpy(), hgb_pipe.predict(val_df[feature_cols])
+    )
+    hgb_test = compute_metrics(
+        test_df["response_time_min"].to_numpy(), hgb_pipe.predict(test_df[feature_cols])
+    )
+
     candidates = [
         ("statistical_baseline", base_val, base_test, baseline),
         ("linear_regression_ridge", lin_val, lin_test, lin_pipe),
         ("random_forest_regressor", rf_val, rf_test, rf_pipe),
+        ("hist_gradient_boosting_mae", hgb_val, hgb_test, hgb_pipe),
     ]
 
     # Select best on validation MAE; keep baseline if no ML model improves it
@@ -191,9 +254,11 @@ def train_and_evaluate() -> dict:
     artifact = {
         "selected_model_name": best_name,
         "baseline_data": baseline.to_dict(),
-        "ml_model": rf_pipe
-        if best_name == "random_forest_regressor"
-        else (lin_pipe if best_name == "linear_regression_ridge" else None),
+        "ml_model": {
+            "random_forest_regressor": rf_pipe,
+            "linear_regression_ridge": lin_pipe,
+            "hist_gradient_boosting_mae": hgb_pipe,
+        }.get(best_name),
         "feature_cols": feature_cols,
         "trained_at": now_utc.isoformat(),
         "manifest": build_manifest(

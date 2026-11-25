@@ -9,6 +9,8 @@ from sqlalchemy.orm import Session
 from app.domain.enums import UrgencyLevel
 from app.domain.temporal import shift_covers_hour, temporal_context, window_counts
 from app.ml.features import FEATURE_COLUMNS, build_feature_frame
+from app.models.raw import RawService
+from app.services.prediction_service import request_demand
 
 REF = datetime(2026, 10, 30, 12, 0)  # viernes
 
@@ -85,6 +87,10 @@ def test_feature_row_uses_base_id_without_same_zone() -> None:
                 "base_id": "BAS-01",
                 "shift": "TURNO_24H",
                 "capacity": 2,
+                "zone_demand_4h": 1,
+                "zone_demand_8h": 2,
+                "zone_demand_12h": 3,
+                "system_demand_1h": 4,
             }
         ]
     )
@@ -102,9 +108,10 @@ def test_build_feature_frame_matches_persisted_features(db: Session) -> None:
         db.execute(
             text(
                 """
-                SELECT s.request_datetime, s.urgency_level, s.service_type, s.zone_id,
+                SELECT s.service_id, s.request_datetime, s.urgency_level, s.service_type, s.zone_id,
                        u.unit_type, u.base_id, u.shift, u.capacity,
-                       f.hour_of_day, f.day_of_week, f.is_weekend, f.is_peak_hour
+                       f.hour_of_day, f.day_of_week, f.is_weekend, f.is_peak_hour,
+                       f.zone_demand_4h, f.zone_demand_8h, f.zone_demand_12h
                 FROM raw.services s
                 JOIN raw.units u ON s.assigned_unit_id = u.unit_id
                 JOIN analytics.service_features f ON f.service_id = s.service_id
@@ -118,10 +125,16 @@ def test_build_feature_frame_matches_persisted_features(db: Session) -> None:
     )
     assert rows, "dataset local vacío: ejecutar scripts/ingest_and_prepare.py"
 
-    frame = build_feature_frame([dict(r) for r in rows])
+    # Demanda del sistema (1 h) no se persiste: se calcula como en el serving.
+    frame = build_feature_frame(
+        [{**dict(r), **request_demand(db, db.get(RawService, r["service_id"]))} for r in rows]
+    )
 
     for row, (_, feat) in zip(rows, frame.iterrows(), strict=True):
         assert feat.hour_of_day == row["hour_of_day"]
         assert feat.day_of_week == row["day_of_week"]
         assert feat.is_weekend == int(row["is_weekend"])
         assert feat.is_peak_hour == int(row["is_peak_hour"])
+        assert feat.zone_demand_4h == row["zone_demand_4h"]
+        assert feat.zone_demand_8h == row["zone_demand_8h"]
+        assert feat.zone_demand_12h == row["zone_demand_12h"]

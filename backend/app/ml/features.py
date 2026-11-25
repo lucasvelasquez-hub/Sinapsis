@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd
 
 from app.domain.temporal import temporal_context
+from app.ml.demand import DEMAND_COLUMNS
 
 CATEGORICAL_COLUMNS = [
     "urgency_level",
@@ -27,6 +28,7 @@ NUMERIC_COLUMNS = [
     "distance_km",
     "valley_time_min",
     "traffic_factor",
+    *DEMAND_COLUMNS,
 ]
 FEATURE_COLUMNS = CATEGORICAL_COLUMNS + NUMERIC_COLUMNS
 
@@ -56,6 +58,8 @@ def build_feature_row(raw: Mapping[str, Any]) -> dict[str, Any]:
         "distance_km": _float_or(raw.get("distance_km"), 5.0),
         "valley_time_min": _float_or(raw.get("valley_time_min"), 12.0),
         "traffic_factor": _float_or(raw.get("traffic_factor"), 1.0),
+        # Sin valor por defecto: una demanda ausente sería un desvío silencioso train/serve.
+        **{c: int(raw[c]) for c in DEMAND_COLUMNS},
     }
 
 

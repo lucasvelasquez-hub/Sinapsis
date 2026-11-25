@@ -47,7 +47,7 @@ from app.schemas.dispatch import (
 )
 from app.services.audit_service import record_audit_event
 from app.services.eligibility_service import NO_RULE_RANK, evaluate_eligibility
-from app.services.prediction_service import predict_expected_responses
+from app.services.prediction_service import predict_expected_responses, request_demand
 from app.services.scoring_service import (
     compute_mcdm_score,
     compute_raw_workload_index,
@@ -286,6 +286,7 @@ def score_candidates(
 
     unit_distances: list[float | None] = []
     ctx_by_unit = {}
+    demand = request_demand(db, service)
     for u in units:
         tr = travel_map.get(u.current_zone_id or "")
         base = bases_map.get(u.base_id)
@@ -321,6 +322,7 @@ def score_candidates(
             "distance_km": dist_km,
             "valley_time_min": tr[1] if tr else None,
             "traffic_factor": traffic,
+            **demand,
         }
     predictions = predict_expected_responses(service, units, context_by_unit=ctx_by_unit)
     distances_km: list[float | None] = []

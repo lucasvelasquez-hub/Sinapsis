@@ -1,12 +1,17 @@
 """Node 4 — contextual expected response time (PREDICHO), never an individual GPS ETA."""
 
 from collections.abc import Sequence
+from datetime import timedelta
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
 from app.ml.artifact import load_artifact
 from app.ml.baseline import ContextualStatisticalBaseline
+from app.ml.demand import HISTORY_HOURS, demand_features
 from app.ml.features import build_feature_frame
 from app.models.raw import RawService
 from app.schemas.dispatch import UnitStatusOut
@@ -48,6 +53,23 @@ def model_evaluation() -> tuple[str, list[dict[str, Any]]] | None:
         for name, values in metrics[split].items()
     ]
     return selected, rows
+
+
+def request_demand(db: Session, service: RawService) -> dict[str, int]:
+    """Demanda previa a la solicitud (zona y sistema), con la misma regla que el entrenamiento.
+
+    Consulta solo las últimas `HISTORY_HOURS` horas anteriores: todas las ventanas caben ahí.
+    """
+    ref = service.request_datetime
+    rows = db.execute(
+        select(RawService.zone_id, RawService.request_datetime).where(
+            RawService.request_datetime >= ref - timedelta(hours=HISTORY_HOURS),
+            RawService.request_datetime < ref,
+        )
+    ).all()
+    system_ts = sorted(dt for _, dt in rows)
+    zone_ts = sorted(dt for zone, dt in rows if zone == service.zone_id)
+    return demand_features(ref, zone_ts, system_ts)
 
 
 def predict_expected_responses(
