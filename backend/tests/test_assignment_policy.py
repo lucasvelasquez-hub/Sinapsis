@@ -175,6 +175,41 @@ def test_d03_demotes_last_alta_ambulance_on_green_only() -> None:
     assert D03 in red[0].warnings
 
 
+def test_d07_pairs_near_vmd_when_tab_takes_01() -> None:
+    ranked = rank_units(
+        "01",
+        15,
+        [
+            _unit("tab", "TAB", 8),
+            _unit("cerca", "VMD", 14),
+            _unit("lejos", "VMD", 16),
+        ],
+        transfer_likely=False,
+        support_vmd=True,
+    )
+    assert ranked[0].unit.unit_id == "tab"
+    assert ranked[0].paired_unit_id == "cerca"
+    assert any(f.startswith("Regla D07:") for f in ranked[0].factors)
+
+
+def test_d08_pairs_ambulance_that_frees_sooner() -> None:
+    ranked = rank_units(
+        "01",
+        15,
+        [
+            _unit("vmd", "VMD", 6),
+            _unit("A", "TAM", 10),
+            _unit("B", "TAB", 18),
+        ],
+        transfer_likely=False,
+        release_min={"A": 50.0, "B": 0.0},
+    )
+    assert ranked[0].unit.unit_id == "vmd"
+    assert ranked[0].role == "PRIMER_RESPONDIENTE_ESTABILIZACION"
+    assert ranked[0].paired_unit_id == "B"
+    assert any("PREDICHO" in f for f in ranked[0].factors)
+
+
 def test_transfer_likely_vocabulary() -> None:
     assert is_transfer_likely("Caídas", None) is True
     assert is_transfer_likely("Heridas", None) is True

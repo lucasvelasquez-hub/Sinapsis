@@ -6,8 +6,9 @@ Incorporates EMI rules: compatibility ranks, travel matrix + traffic factor, ope
 """
 
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
+from statistics import median
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -393,6 +394,40 @@ def score_candidates(
     return _order_by_policy(scored, service, target_min, risky_coverage_units)
 
 
+def retention_median_min(db: Session, center_name: str | None) -> tuple[float, str]:
+    """Mediana de llegada al destino → liberación, por centro. Menos de 5 usa la global."""
+    rows = db.execute(
+        select(RawService.destination_center, RawService.assigned_units_json).where(
+            RawService.assigned_units_json.is_not(None)
+        )
+    ).all()
+    by_center: dict[str, list[float]] = {}
+    all_mins: list[float] = []
+    for center, payload in rows:
+        if not isinstance(payload, list):
+            continue
+        for entry in payload:
+            if not isinstance(entry, dict):
+                continue
+            start = entry.get("fecha_hora_llegada_destino")
+            end = entry.get("fecha_hora_liberacion")
+            if not start or not end:
+                continue
+            minutes = (
+                datetime.fromisoformat(str(end)) - datetime.fromisoformat(str(start))
+            ).total_seconds() / 60.0
+            if minutes < 0:
+                continue
+            all_mins.append(minutes)
+            if center:
+                by_center.setdefault(str(center), []).append(minutes)
+    global_med = float(median(all_mins)) if all_mins else 50.0
+    sample = by_center.get(center_name or "", [])
+    if center_name and len(sample) >= 5:
+        return float(median(sample)), f"Retención PREDICHO: mediana histórica de {center_name}"
+    return global_med, "Retención PREDICHO: mediana global"
+
+
 def _order_by_policy(
     scored: list[ScoredCandidate],
     service: RawService,
@@ -421,6 +456,7 @@ def _order_by_policy(
         target_min,
         policy_units,
         transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+        support_vmd=service.urgency_level == "01",
     )
     by_id = {c.unit.unit_id: c for c in scored}
     ordered: list[ScoredCandidate] = []
@@ -429,6 +465,21 @@ def _order_by_policy(
         for warning in item.warnings:
             if warning not in candidate.warnings:
                 candidate.warnings.append(warning)
+        extra = [
+            factor
+            for factor in item.factors
+            if factor.startswith(("Regla", "Retención")) and factor not in candidate.factors
+        ]
+        role = item.role if item.role != UnitRole.ATENCION.value else candidate.recommended_role
+        paired = item.paired_unit_id or candidate.paired_unit_id
+        if extra or role != candidate.recommended_role or paired != candidate.paired_unit_id:
+            candidate = replace(
+                candidate,
+                recommended_role=role,
+                paired_unit_id=paired,
+                factors=[*candidate.factors, *extra],
+            )
+            by_id[item.unit.unit_id] = candidate
         ordered.append(candidate)
     responders = [
         c

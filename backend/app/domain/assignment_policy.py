@@ -52,22 +52,44 @@ def is_transfer_likely(motivo: str | None, discriminador: str | None) -> bool:
     return discriminador == TRANSFER_DISCRIMINADOR
 
 
+def choose_paired_ambulance(
+    units: list[PolicyUnit], *, release_min: dict[str, float]
+) -> str | None:
+    """Ambulancia que minimiza liberación prevista + viaje."""
+    ambulances = [u for u in units if u.unit_type in AMBULANCE_TYPES]
+    if not ambulances:
+        return None
+    return min(
+        ambulances,
+        key=lambda u: (release_min.get(u.unit_id, 0.0) + u.arrival_min, u.unit_id),
+    ).unit_id
+
+
 def rank_units(
     urgency: str,
     target_min: float,
     units: list[PolicyUnit],
     *,
     transfer_likely: bool,
+    release_min: dict[str, float] | None = None,
+    support_vmd: bool = False,
 ) -> list[RankedUnit]:
     """Ordena móviles. tier 0 puede ganar; tier 1 quedó hundida por D03."""
     if not units:
         return []
+    releases = release_min or {}
 
     if urgency in VITAL:
         ordered = _rank_vital(units, urgency)
         demoted: set[str] = set()
     else:
         ordered, demoted = _rank_green(units, urgency, target_min, transfer_likely)
+
+    r04 = _r04_vmd(urgency, target_min, units, releases)
+    if r04 is not None:
+        ordered = [r04] + [u for u in ordered if u.unit_id != r04.unit_id]
+    r04_pair = choose_paired_ambulance(units, release_min=releases) if r04 is not None else None
+    d07_unit_id, d07_pair = _d07_pair(urgency, ordered, units, support_vmd, r04 is not None)
 
     has_tab = any(u.unit_type == "TAB" for u in units)
     d06_active = _d06_active(urgency, target_min, units, transfer_likely)
@@ -80,17 +102,65 @@ def rank_units(
             warnings.append(WARN_D05)
         if d06_active and unit.unit_type == "TAB" and unit.arrival_min <= target_min:
             warnings.append(WARN_D06)
+        factors = [f"Llegada estimada: {unit.arrival_min:.1f} min"]
+        role = "ATENCION"
+        paired: str | None = None
+        if r04 is not None and unit.unit_id == r04.unit_id:
+            role = "PRIMER_RESPONDIENTE_ESTABILIZACION"
+            paired = r04_pair
+            factors.append("Retención PREDICHO: liberación más viaje")
+        elif d07_unit_id == unit.unit_id:
+            paired = d07_pair
+            factors.append("Regla D07: VMD de apoyo")
         ranked.append(
             RankedUnit(
                 unit=unit,
                 tier=1 if unit.unit_id in demoted else 0,
-                role="ATENCION",
-                paired_unit_id=None,
-                factors=[f"Llegada estimada: {unit.arrival_min:.1f} min"],
+                role=role,
+                paired_unit_id=paired,
+                factors=factors,
                 warnings=warnings,
             )
         )
     return ranked
+
+
+def _r04_vmd(
+    urgency: str,
+    target_min: float,
+    units: list[PolicyUnit],
+    releases: dict[str, float],
+) -> PolicyUnit | None:
+    if urgency not in VITAL:
+        return None
+    ambulances = [u for u in units if u.unit_type in AMBULANCE_TYPES]
+    if not ambulances:
+        return None
+    best = min(releases.get(u.unit_id, 0.0) + u.arrival_min for u in ambulances)
+    if best <= target_min:
+        return None
+    vmds = [u for u in units if u.unit_type == "VMD" and u.arrival_min <= best - VMD_ADVANTAGE_MIN]
+    if not vmds:
+        return None
+    return min(vmds, key=lambda u: (u.arrival_min, u.unit_id))
+
+
+def _d07_pair(
+    urgency: str,
+    ordered: list[PolicyUnit],
+    units: list[PolicyUnit],
+    support_vmd: bool,
+    r04_active: bool,
+) -> tuple[str | None, str | None]:
+    if r04_active or not support_vmd or urgency != "01" or not ordered:
+        return None, None
+    if ordered[0].unit_type != "TAB":
+        return None, None
+    near = [u for u in units if u.unit_type == "VMD" and u.arrival_min <= D07_NEAR_MIN]
+    if not near:
+        return None, None
+    chosen = min(near, key=lambda u: (u.arrival_min, u.unit_id))
+    return ordered[0].unit_id, chosen.unit_id
 
 
 def _rank_vital(units: list[PolicyUnit], urgency: str) -> list[PolicyUnit]:

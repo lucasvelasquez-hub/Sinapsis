@@ -1,11 +1,13 @@
 """El orden del Top 3 sigue la política del documento 03, no el municipio."""
 
+from datetime import datetime, timedelta
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.raw import RawService, RawZone, RawZoneTravelTime
 from app.schemas.dispatch import EligibilityEvaluation, UnitStatusOut
-from app.services.recommendation_service import score_candidates
+from app.services.recommendation_service import retention_median_min, score_candidates
 
 
 def _unit(unit_id: str, zone_id: str, unit_type: str = "TAB") -> UnitStatusOut:
@@ -136,3 +138,49 @@ def test_d03_warning_does_not_drop_fastest_01(db: Session) -> None:
 
     assert ranked[0].unit.unit_id == "rapida"
     assert any(w.startswith("Regla D03:") for w in ranked[0].warnings)
+
+
+def test_d08_retention_is_per_center(db: Session) -> None:
+    zone_id = db.execute(select(RawZone.zone_id).limit(1)).scalar_one()
+
+    def add(service_id: str, center: str, minutes: int) -> None:
+        start = datetime(2026, 4, 1, 10, 0)
+        end = start + timedelta(minutes=minutes)
+        db.add(
+            RawService(
+                service_id=service_id,
+                request_datetime=datetime(2026, 4, 1, 9, 0),
+                urgency_level="01",
+                service_type="Dolor torácico",
+                zone_id=zone_id,
+                destination_center=center,
+                required_transfer=True,
+                assigned_units_json=[
+                    {
+                        "fecha_hora_llegada_destino": start.isoformat(),
+                        "fecha_hora_liberacion": end.isoformat(),
+                    }
+                ],
+                status="COMPLETED",
+                is_synthetic=True,
+            )
+        )
+
+    for i in range(5):
+        add(f"RET-A-{i}", "CENTRO_A_TEST", 10)
+        add(f"RET-B-{i}", "CENTRO_B_TEST", 40)
+    for i in range(4):
+        add(f"RET-C-{i}", "CENTRO_POCOS", 100)
+    db.flush()
+
+    center_a, text_a = retention_median_min(db, "CENTRO_A_TEST")
+    center_b, _text_b = retention_median_min(db, "CENTRO_B_TEST")
+    few, text_few = retention_median_min(db, "CENTRO_POCOS")
+    global_med, _ = retention_median_min(db, None)
+
+    assert center_a == 10
+    assert center_b == 40
+    assert "CENTRO_A_TEST" in text_a
+    assert "PREDICHO" in text_a
+    assert few == global_med
+    assert "global" in text_few
