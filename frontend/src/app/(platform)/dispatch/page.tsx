@@ -12,7 +12,7 @@ import { EligibilityPanel } from "@/features/dispatch/EligibilityPanel";
 import { LastDecisionBanner } from "@/features/dispatch/LastDecisionBanner";
 import { RequestQueue } from "@/features/dispatch/RequestQueue";
 import { RequestSummaryCard } from "@/features/dispatch/RequestSummaryCard";
-import type { LivePos } from "@/features/simulation/AburraMap";
+import { useLiveFleetMap } from "@/features/simulation/useLiveFleetMap";
 import { coreApi } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useDispatchStore } from "@/stores/dispatchStore";
@@ -115,17 +115,27 @@ export default function DispatchCenterPage() {
   const detail = detailQuery.data;
   const simState = simStateQuery.data;
 
-  const tacticalLiveMap = useMemo<Record<string, LivePos>>(() => {
-    const map: Record<string, LivePos> = {};
-    for (const u of simState?.units ?? []) {
-      map[u.unit_id] = {
-        lat: u.lat,
-        lon: u.lon,
-        targetZoneId: u.current_zone_id ?? u.base_id,
-      };
-    }
-    return map;
-  }, [simState?.units]);
+  const simZones = useMemo(() => simState?.zones ?? [], [simState?.zones]);
+  const simBases = useMemo(() => simState?.bases ?? [], [simState?.bases]);
+  const simCareCenters = useMemo(
+    () => simState?.care_centers ?? [],
+    [simState?.care_centers],
+  );
+  const simUnits = useMemo(() => simState?.units ?? [], [simState?.units]);
+  const simActiveRequests = useMemo(
+    () => simState?.active_requests ?? [],
+    [simState?.active_requests],
+  );
+
+  const tacticalLiveMap = useLiveFleetMap({
+    zones: simZones,
+    bases: simBases,
+    careCenters: simCareCenters,
+    units: simUnits,
+    activeRequests: simActiveRequests,
+    trafficFactor: simState?.traffic_factor ?? 1.0,
+    enabled: centerView !== "clinical",
+  });
 
   const focusedRequests = useMemo(() => {
     const active = simState?.active_requests ?? [];
