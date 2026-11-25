@@ -11,9 +11,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import ExclusionCode
+from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import shift_covers_hour
 from app.models.core import SimulationSession
-from app.models.raw import RawBase, RawCareCenter, RawService, RawServiceRule, RawUnit
+from app.models.raw import RawBase, RawCareCenter, RawService, RawServiceRule, RawUnit, RawZone
 from app.schemas.dispatch import EligibilityEvaluation, ExclusionReason, UnitStatusOut
 from app.services.simulation_service import (
     get_or_create_simulation_session,
@@ -25,6 +26,11 @@ NO_RULE_RANK = 99
 # Premisa operativa: los móviles permanecen en movimiento y no regresan a base
 # hasta terminar turno (ventana máxima de turno = 12h).
 CURRENT_SHIFT_WINDOW = timedelta(hours=12)
+# Radio de zona cercana/aledaña (regla D01): solo se mantienen como elegibles
+# unidades en la misma zona o dentro de 6 km de recorrido vial estimado.
+NEARBY_RADIUS_KM = 6.0
+PERIPHERAL_FALLBACK_COUNT = 3
+AMBULANCE_TYPES = {"TAM", "TAB"}
 
 
 def resolve_units_current_zone(
@@ -36,7 +42,6 @@ def resolve_units_current_zone(
 ) -> dict[str, str]:
     """Posición actual de cada móvil: último destino/zona atendida en el turno, o base al inicio."""
     unit_ids = [u.unit_id for u in units]
-    centers_by_name = {c.name: c.zone_id for c in db.execute(select(RawCareCenter)).scalars().all()}
     last_zone: dict[str, tuple[datetime, str]] = {}
 
     if unit_ids:
@@ -44,10 +49,11 @@ def resolve_units_current_zone(
             select(
                 RawService.assigned_unit_id,
                 RawService.zone_id,
-                RawService.destination_center,
                 RawService.required_transfer,
                 RawService.closure_datetime,
+                RawCareCenter.zone_id.label("center_zone_id"),
             )
+            .outerjoin(RawCareCenter, RawCareCenter.name == RawService.destination_center)
             .where(
                 RawService.assigned_unit_id.in_(unit_ids),
                 RawService.closure_datetime >= ref_dt - CURRENT_SHIFT_WINDOW,
@@ -55,12 +61,10 @@ def resolve_units_current_zone(
             )
             .order_by(RawService.closure_datetime.asc())
         ).all()
-        for uid, zid, dest_center, req_transfer, cdt in recent_rows:
+        for uid, zid, req_transfer, cdt, center_zone_id in recent_rows:
             if not uid or not zid or not cdt:
                 continue
-            final_zone = (
-                centers_by_name.get(dest_center, zid) if (req_transfer and dest_center) else zid
-            )
+            final_zone = center_zone_id if (req_transfer and center_zone_id) else zid
             last_zone[uid] = (cdt, final_zone)
 
     if sim_session is not None:
@@ -148,6 +152,7 @@ def evaluate_eligibility(
 
     units = db.execute(select(RawUnit).order_by(RawUnit.unit_id.asc())).scalars().all()
     bases = {b.base_id: b for b in db.execute(select(RawBase)).scalars().all()}
+    zones = {z.zone_id: z for z in db.execute(select(RawZone)).scalars().all()}
     rules = {
         r.unit_type: r
         for r in db.execute(
@@ -165,9 +170,20 @@ def evaluate_eligibility(
     current_zones = resolve_units_current_zone(db, units, bases, ref_dt, sim_session)
     live_positions = (sim_session.active_assignments_json or {}).get("_positions") or {}
 
-    eligible_units: list[UnitStatusOut] = []
+    dest_zone = zones.get(service.zone_id)
+    patient_lat = (
+        service.lat_approx
+        if service.lat_approx is not None
+        else (dest_zone.lat_centroid if dest_zone else None)
+    )
+    patient_lon = (
+        service.lon_approx
+        if service.lon_approx is not None
+        else (dest_zone.lon_centroid if dest_zone else None)
+    )
+
+    hard_eligible: list[tuple[UnitStatusOut, int]] = []
     excluded_units: list[ExclusionReason] = []
-    compat_ranks: dict[str, int] = {}
 
     for unit in units:
         rule = rules.get(unit.unit_type)
@@ -188,28 +204,94 @@ def evaluate_eligibility(
         live_zone = pos.get("zone_id") if isinstance(pos, dict) else None
         live_lat = pos.get("lat") if isinstance(pos, dict) else None
         live_lon = pos.get("lon") if isinstance(pos, dict) else None
-        eligible_units.append(
-            UnitStatusOut(
-                unit_id=unit.unit_id,
-                unit_type=unit.unit_type,
-                base_id=unit.base_id,
-                shift=unit.shift,
-                capacity=unit.capacity,
-                cost_per_km=unit.cost_per_km,
-                cost_per_hour=unit.cost_per_hour,
-                current_zone_id=live_zone or current_zones.get(unit.unit_id),
-                current_lat=float(live_lat) if live_lat is not None else None,
-                current_lon=float(live_lon) if live_lon is not None else None,
-                observation=unit.observation,
-                active=unit.active,
-                simulated_available=True,
-                busy_until=None,
-                workload_4h=w4,
-                workload_8h=w8,
-                workload_12h=w12,
-            )
+        resolved_zone = live_zone or current_zones.get(unit.unit_id)
+
+        base = bases.get(unit.base_id)
+        oz = zones.get(resolved_zone or "")
+        if live_lat is not None and live_lon is not None:
+            u_lat, u_lon = float(live_lat), float(live_lon)
+        elif base and resolved_zone == base.zone_id:
+            u_lat, u_lon = base.lat, base.lon
+        elif oz:
+            u_lat, u_lon = oz.lat_centroid, oz.lon_centroid
+        elif base:
+            u_lat, u_lon = base.lat, base.lon
+        else:
+            u_lat, u_lon = None, None
+
+        dist_km: float | None = None
+        if None not in (u_lat, u_lon, patient_lat, patient_lon):
+            km = haversine_km(u_lat, u_lon, patient_lat, patient_lon)  # type: ignore[arg-type]
+            dist_km = round(km * ROAD_CIRCUITY_FACTOR, 2)
+
+        unit_out = UnitStatusOut(
+            unit_id=unit.unit_id,
+            unit_type=unit.unit_type,
+            base_id=unit.base_id,
+            shift=unit.shift,
+            capacity=unit.capacity,
+            cost_per_km=unit.cost_per_km,
+            cost_per_hour=unit.cost_per_hour,
+            current_zone_id=resolved_zone,
+            current_lat=float(live_lat) if live_lat is not None else None,
+            current_lon=float(live_lon) if live_lon is not None else None,
+            distance_km=dist_km,
+            observation=unit.observation,
+            active=unit.active,
+            simulated_available=True,
+            busy_until=None,
+            workload_4h=w4,
+            workload_8h=w8,
+            workload_12h=w12,
         )
-        compat_ranks[unit.unit_id] = rule.compatibility_rank if rule else NO_RULE_RANK
+        hard_eligible.append((unit_out, rule.compatibility_rank if rule else NO_RULE_RANK))
+
+    # Filtro de proximidad real (regla D01): solo quedan como elegibles las unidades
+    # en la misma zona o dentro del radio cercano; las demás se excluyen con motivo explícito.
+    hard_eligible.sort(
+        key=lambda item: (
+            item[0].distance_km if item[0].distance_km is not None else 9999.0,
+            item[0].unit_id,
+        )
+    )
+    nearby_ids = {
+        u.unit_id
+        for u, _ in hard_eligible
+        if u.current_zone_id == service.zone_id
+        or u.distance_km is None
+        or u.distance_km <= NEARBY_RADIUS_KM
+    }
+    if not nearby_ids and hard_eligible:
+        # Zona periférica (p. ej. Barbosa/Caldas) sin móviles <=6 km: tomar las más cercanas.
+        nearby_ids = {u.unit_id for u, _ in hard_eligible[:PERIPHERAL_FALLBACK_COUNT]}
+    elif service.urgency_level in ("01", "02") and not any(
+        u.unit_type in AMBULANCE_TYPES for u, _ in hard_eligible if u.unit_id in nearby_ids
+    ):
+        # Regla R03/R04: en 01/02 conservar al menos la ambulancia más cercana para traslado/apoyo.
+        closest_amb = next(
+            (u for u, _ in hard_eligible if u.unit_type in AMBULANCE_TYPES),
+            None,
+        )
+        if closest_amb is not None:
+            nearby_ids.add(closest_amb.unit_id)
+
+    eligible_units: list[UnitStatusOut] = []
+    compat_ranks: dict[str, int] = {}
+    for u, rank in hard_eligible:
+        if u.unit_id in nearby_ids:
+            eligible_units.append(u)
+            compat_ranks[u.unit_id] = rank
+        else:
+            dist_txt = f"{u.distance_km:.1f} km" if u.distance_km is not None else "lejana"
+            msg = f"Fuera de zona cercana ({dist_txt} > {NEARBY_RADIUS_KM:.0f} km)"
+            excluded_units.append(
+                ExclusionReason(
+                    unit_id=u.unit_id,
+                    unit_type=u.unit_type,
+                    reason_codes=[ExclusionCode.OUT_OF_RANGE],
+                    reasons=[f"{ExclusionCode.OUT_OF_RANGE}: {msg}"],
+                )
+            )
 
     return (
         EligibilityEvaluation(

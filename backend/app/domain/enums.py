@@ -23,6 +23,7 @@ class ExclusionCode(StrEnum):
     INSUFFICIENT_CAPACITY = "INSUFFICIENT_CAPACITY"
     OUT_OF_SHIFT = "OUT_OF_SHIFT"
     BUSY_IN_SIMULATION = "BUSY_IN_SIMULATION"
+    OUT_OF_RANGE = "OUT_OF_RANGE"
 
 
 class UrgencyLevel(StrEnum):

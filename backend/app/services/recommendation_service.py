@@ -41,13 +41,56 @@ from app.services.scoring_service import (
     compute_raw_workload_index,
     get_scoring_config,
     normalize_min_max_0_100,
+    normalize_workload_0_100,
 )
 
 TOP_N = 3
 ASSUMED_ON_SCENE_MIN = 35.0
 VMD_ADVANTAGE_THRESHOLD_MIN = 12.0
 COVERAGE_MAX_AMBULANCE_MIN = 20.0
+ADJACENT_MAX_DISTANCE_KM = 5.0
+ADJACENT_MAX_TRAVEL_MIN = 12.0
+MID_RANGE_MAX_DISTANCE_KM = 10.0
+MID_RANGE_MAX_TRAVEL_MIN = 22.0
+D02_CLOSE_TIME_DIFF_MIN = 3.0
+D07_VMD_SUPPORT_MAX_MIN = 12.0
+D06_TRANSFER_KEYWORDS = (
+    "caída",
+    "caida",
+    "trauma",
+    "fractura",
+    "herida",
+    "deshidrat",
+    "disnea",
+    "dolor abdominal",
+)
 AMBULANCE_TYPES = {"TAM", "TAB"}
+
+
+def _proximity_tier(same_zone: bool, dist_km: float | None, travel_min: float | None) -> int:
+    """Regla D01: proximidad real por posición actual y matriz O-D (sin cortes municipales).
+
+    0 = misma zona o zona aledaña (<=5 km o <=12 min)
+    1 = zona intermedia (<=10 km o <=22 min)
+    2 = zona lejana (respaldo)
+    """
+    if same_zone:
+        return 0
+    if (dist_km is not None and dist_km <= ADJACENT_MAX_DISTANCE_KM) or (
+        travel_min is not None and travel_min <= ADJACENT_MAX_TRAVEL_MIN
+    ):
+        return 0
+    if (dist_km is not None and dist_km <= MID_RANGE_MAX_DISTANCE_KM) or (
+        travel_min is not None and travel_min <= MID_RANGE_MAX_TRAVEL_MIN
+    ):
+        return 1
+    return 2
+
+
+def _d06_possible_transfer(service_type: str) -> bool:
+    """Regla D06: motivos 07 con posible traslado donde conviene considerar TAB."""
+    low = service_type.lower()
+    return any(kw in low for kw in D06_TRANSFER_KEYWORDS)
 
 
 @dataclass(frozen=True)
@@ -69,13 +112,13 @@ class ScoredCandidate:
     factors: list[str]
     warnings: list[str]
     vital_priority_tier: int = 0
-    local_zone_tier: int = 2
+    proximity_tier: int = 2
 
     @property
     def sort_key(self) -> tuple[int, int, float, int, float]:
         return (
             self.vital_priority_tier,
-            self.local_zone_tier,
+            self.proximity_tier,
             self.score,
             self.compatibility_rank,
             self.expected_response_min,
@@ -303,7 +346,7 @@ def score_candidates(
     best_amb_id = units[best_amb_idx].unit_id if best_amb_idx is not None else None
 
     norm_time = normalize_min_max_0_100(effective_times)
-    norm_workload = normalize_min_max_0_100(
+    norm_workload = normalize_workload_0_100(
         [compute_raw_workload_index(u.workload_4h, u.workload_8h, u.workload_12h) for u in units]
     )
     norm_cost = normalize_min_max_0_100(costs)
@@ -312,7 +355,19 @@ def score_candidates(
     eff_wt, eff_wl, eff_wc, eff_wk, vital_mode = _effective_weights(
         service.urgency_level, weight_time, weight_workload, weight_cost, weight_coverage
     )
-    has_tab = any(u.unit_type == "TAB" for u in units)
+    has_adequate_tab = any(
+        u.unit_type == "TAB" and effective_times[i] <= target_min for i, u in enumerate(units)
+    )
+    best_vmd_idx = min(
+        (i for i, u in enumerate(units) if u.unit_type == "VMD"),
+        key=lambda i: effective_times[i],
+        default=None,
+    )
+    best_vmd_time = effective_times[best_vmd_idx] if best_vmd_idx is not None else float("inf")
+    best_vmd_id = units[best_vmd_idx].unit_id if best_vmd_idx is not None else None
+    fastest_time = min(effective_times)
+    d06_transfer = service.urgency_level == "07" and _d06_possible_transfer(service.service_type)
+
     scored: list[ScoredCandidate] = []
     for idx, (unit, (_, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
         zip(units, predictions, norm_time, norm_workload, norm_cost, norm_coverage, strict=True)
@@ -355,13 +410,27 @@ def score_candidates(
             )
         elif unit.unit_type in AMBULANCE_TYPES and service.urgency_level in ("01", "02"):
             role = UnitRole.ATENCION_Y_TRASLADO.value
+            # Regla D07: en 01 atendido por TAB, sugerir VMD cercana como apoyo médico.
+            if (
+                service.urgency_level == "01"
+                and unit.unit_type == "TAB"
+                and best_vmd_id is not None
+                and best_vmd_time <= D07_VMD_SUPPORT_MAX_MIN
+            ):
+                paired_id = best_vmd_id
+                factors.append(
+                    f"Regla D07: apoyo médico sugerido con {best_vmd_id} ({best_vmd_time:.1f} min)"
+                )
+
+        if d06_transfer and unit.unit_type == "TAB":
+            factors.append("Regla D06: motivo 07 con posible traslado; TAB considerada adecuada")
 
         if vital_mode:
             factors.append(
-                "Prioridad vital (01/02): prima tiempo de llegada y traslado sobre costo"
+                "Prioridad vital (01/02): prima tiempo de llegada y traslado sobre costo (D01)"
             )
         else:
-            factors.append("Balance operativo: optimiza tiempo, costo y carga de flota")
+            factors.append("Balance operativo: optimiza tiempo (D01), costo (D02) y carga (D04)")
 
         if unit.workload_4h == 0:
             factors.append("Sin carga reciente en 4h")
@@ -370,30 +439,42 @@ def score_candidates(
 
         if unit.unit_id in risky_coverage_units:
             warnings.append("Regla D03: deja zona de demanda ALTA sin ambulancia <=20 min")
-        if service.urgency_level == "02" and unit.unit_type == "TAM" and has_tab:
-            warnings.append("Regla D05: hay TAB disponible; reservar TAM para emergencias 01")
+        if service.urgency_level == "02" and unit.unit_type == "TAM" and has_adequate_tab:
+            warnings.append(
+                "Regla D05: hay TAB adecuada dentro del objetivo; reservar TAM para emergencias 01"
+            )
         if compat_rank >= 4:
             warnings.append(
                 f"Tipo {unit.unit_type} no recomendado para clasificación {service.urgency_level}"
             )
 
-        vital_tier = 1 if (vital_mode and unit.unit_type == "VMD" and not is_r04_vmd) else 0
-        # Prioridad territorial: 0 = misma zona, 1 = mismo municipio, 2 = mejor unidad externa.
-        unit_zone_obj = zones_map.get(unit.current_zone_id or "")
-        if unit.current_zone_id == service.zone_id:
-            local_tier = 0
-            factors.insert(1, f"Recurso local en la misma zona ({service.zone_id})")
-        elif (
-            dest_zone is not None
-            and unit_zone_obj is not None
-            and unit_zone_obj.municipality == dest_zone.municipality
-        ):
-            local_tier = 1
-            factors.insert(1, f"Recurso en el mismo municipio ({dest_zone.municipality})")
+        # Prioridad de rol/compatibilidad según reglas EMI (R03, R04, D05, tabla Sec. 4):
+        if vital_mode:
+            if unit.unit_type == "VMD" and not is_r04_vmd:
+                vital_tier = 1
+            elif service.urgency_level == "02" and unit.unit_type == "TAM" and has_adequate_tab:
+                vital_tier = 1  # Regla D05: no comprometer TAM si hay TAB adecuada <=20 min
+            else:
+                vital_tier = 0
         else:
-            local_tier = 2
-        # Regla D02 en prioridad vital: solo desempata por costo cuando la diferencia es <3 min.
-        d02_cost_weight = 0.02 if vital_mode else eff_wc
+            vital_tier = 1 if compat_rank >= 4 else 0
+
+        # Regla D01: proximidad real por posición actual y matriz O-D (sin corte por municipio).
+        same_zone = unit.current_zone_id == service.zone_id
+        prox_tier = _proximity_tier(same_zone, dist_km_val, est_travel)
+        if same_zone:
+            factors.insert(1, f"Regla D01: recurso local en la misma zona ({service.zone_id})")
+        elif prox_tier == 0:
+            factors.insert(
+                1,
+                f"Regla D01: recurso en zona aledaña ({unit.current_zone_id or unit.base_id})",
+            )
+        elif prox_tier == 2:
+            warnings.append("Unidad en zona lejana (>10 km / >22 min); evaluar solo como respaldo")
+
+        # Regla D02: preferir menor costo solo cuando la diferencia de llegada es < 3 min.
+        close_to_fastest = (eff_time - fastest_time) < D02_CLOSE_TIME_DIFF_MIN
+        d02_cost_weight = (0.05 if close_to_fastest else 0.0) if vital_mode else eff_wc
 
         scored.append(
             ScoredCandidate(
@@ -423,7 +504,7 @@ def score_candidates(
                 factors=factors,
                 warnings=warnings,
                 vital_priority_tier=vital_tier,
-                local_zone_tier=local_tier,
+                proximity_tier=prox_tier,
             )
         )
     return sorted(scored, key=lambda c: c.sort_key)

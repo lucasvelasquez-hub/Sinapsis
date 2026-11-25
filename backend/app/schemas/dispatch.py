@@ -75,6 +75,7 @@ class UnitStatusOut(BaseModel):
     current_zone_id: str | None = None
     current_lat: float | None = None
     current_lon: float | None = None
+    distance_km: float | None = None
     observation: str | None = None
     active: bool
     simulated_available: bool

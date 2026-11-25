@@ -13,6 +13,7 @@ DEFAULT_WEIGHT_WORKLOAD = 0.20
 DEFAULT_WEIGHT_COST = 0.15
 DEFAULT_WEIGHT_COVERAGE = 0.15
 WORKLOAD_WINDOW_WEIGHTS = (0.50, 0.30, 0.20)
+WORKLOAD_SATURATION_INDEX = 4.0
 
 
 def get_scoring_config(db: Session) -> ScoringConfig:
@@ -74,6 +75,21 @@ def compute_raw_workload_index(w4: int, w8: int, w12: int) -> float:
     """Weighted operational workload across 4h, 8h, and 12h windows."""
     a, b, c = WORKLOAD_WINDOW_WEIGHTS
     return a * w4 + b * w8 + c * w12
+
+
+def normalize_workload_0_100(
+    values: list[float],
+    saturation_index: float = WORKLOAD_SATURATION_INDEX,
+) -> list[float]:
+    """Scale workload against an operational saturation floor so 0 vs 1 service isn't 0 vs 100."""
+    if not values:
+        return []
+    min_v = min(values)
+    max_v = max(values)
+    if max_v == min_v:
+        return [0.0 for _ in values]
+    span = max(saturation_index, max_v - min_v)
+    return [round(min(100.0, ((v - min_v) / span) * 100.0), 2) for v in values]
 
 
 def compute_mcdm_score(
