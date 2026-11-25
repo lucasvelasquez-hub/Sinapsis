@@ -328,7 +328,8 @@ export default function SimulationPage() {
               targetZoneId: nextZone,
               route: nextZone !== tgtZone ? undefined : route,
               routeIdx: nextZone !== tgtZone ? 0 : moved.routeIdx,
-              transferring: isTransferring && !moved.reachedEnd,
+              transferring: false,
+              atClinic: isTransferring,
             };
           } else {
             next[u.unit_id] = {
@@ -338,6 +339,7 @@ export default function SimulationPage() {
               route,
               routeIdx: moved.routeIdx,
               transferring: isTransferring,
+              atClinic: false,
             };
           }
         }
@@ -650,6 +652,13 @@ export default function SimulationPage() {
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" /> VMD</span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 ring-2 ring-cyan-400/50" /> En camino</span>
                   <span className="flex items-center gap-1"><span className="core-siren h-2.5 w-2.5 rounded-full" /> En traslado</span>
+                  <span className="flex items-center gap-1">
+                    <svg width="11" height="11" viewBox="0 0 24 24" aria-hidden="true">
+                      <polygon points="7.5,2 16.5,2 22,7.5 22,16.5 16.5,22 7.5,22 2,16.5 2,7.5" fill="#dc2626" stroke="#ffffff" strokeWidth="2" />
+                      <rect x="6.5" y="10.4" width="11" height="3.2" rx="0.8" fill="#ffffff" />
+                    </svg>
+                    Retención (D08)
+                  </span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 bg-violet-400" /> Base</span>
                   <span className="flex items-center gap-1">
                     <svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true">

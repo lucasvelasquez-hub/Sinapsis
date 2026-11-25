@@ -20,6 +20,7 @@ export interface LivePos {
   route?: Array<[number, number]>;
   routeIdx?: number;
   transferring?: boolean;
+  atClinic?: boolean;
 }
 
 const DARK_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -76,6 +77,7 @@ function renderUnitContent(
     opacity,
     isEnRoute,
     isTransferring,
+    isAtClinicStop,
   }: {
     fillColor: string;
     borderColor: string;
@@ -85,9 +87,21 @@ function renderUnitContent(
     opacity: number;
     isEnRoute: boolean;
     isTransferring: boolean;
+    isAtClinicStop: boolean;
   }
 ): void {
   const box = size + 12;
+  if (isAtClinicStop) {
+    // Retención de camilla en clínica (D08): deja de titilar y muestra símbolo de STOP
+    const svgSize = Math.max(18, size + 2);
+    el.innerHTML = `<div style="position:relative;width:${box}px;height:${box}px;display:flex;align-items:center;justify-content:center;pointer-events:auto;">
+      <svg width="${svgSize}" height="${svgSize}" viewBox="0 0 24 24" style="filter:drop-shadow(0 0 5px rgba(220,38,38,0.85));">
+        <polygon points="7.5,2 16.5,2 22,7.5 22,16.5 16.5,22 7.5,22 2,16.5 2,7.5" fill="#dc2626" stroke="#ffffff" stroke-width="1.8" stroke-linejoin="round"/>
+        <rect x="6.5" y="10.4" width="11" height="3.2" rx="0.8" fill="#ffffff"/>
+      </svg>
+    </div>`;
+    return;
+  }
   const ping = isTransferring
     ? `<span class="core-siren-halo" style="position:absolute;inset:3px;border-radius:9999px;pointer-events:none;"></span>`
     : isEnRoute
@@ -514,7 +528,8 @@ export default function AburraMap({
       const opState = resolveUnitOperationalState(u, activeRequests, basesById);
       const isEnRoute = opState === "EN_RUTA";
       const isInAttention = opState === "EN_ATENCION";
-      const isTransferring = opState === "EN_TRASLADO";
+      const isAtClinicStop = opState === "EN_TRASLADO" && Boolean(pos?.atClinic);
+      const isTransferring = opState === "EN_TRASLADO" && !isAtClinicStop;
       const baseColor = UNIT_COLOR[u.unit_type] ?? "#e2e8f0";
       const fillColor =
         opState === "FUERA_SERVICIO"
@@ -532,8 +547,10 @@ export default function AburraMap({
         : isTransferring
         ? "#ffffff"
         : "#0f172a";
-      const styleKey = `${fillColor}|${borderColor}|${opState}|${isSelected}`;
-      const tooltip = `${u.unit_id} (${u.unit_type}) · ${opState}`;
+      const styleKey = `${fillColor}|${borderColor}|${opState}|${isAtClinicStop}|${isSelected}`;
+      const tooltip = isAtClinicStop
+        ? `${u.unit_id} (${u.unit_type}) · STOP — Retención de camilla en clínica (D08)`
+        : `${u.unit_id} (${u.unit_type}) · ${opState}`;
 
       const entry = unitMarkersRef.current.get(u.unit_id);
       if (!entry) {
@@ -548,9 +565,18 @@ export default function AburraMap({
           opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
           isEnRoute,
           isTransferring,
+          isAtClinicStop,
         });
         el.style.zIndex = String(
-          isSelected ? 40 : isTransferring ? 35 : isEnRoute ? 30 : isInAttention ? 25 : 10
+          isSelected
+            ? 40
+            : isTransferring || isAtClinicStop
+            ? 35
+            : isEnRoute
+            ? 30
+            : isInAttention
+            ? 25
+            : 10
         );
 
         const record = {
@@ -589,9 +615,18 @@ export default function AburraMap({
             opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
             isEnRoute,
             isTransferring,
+            isAtClinicStop,
           });
           entry.el.style.zIndex = String(
-            isSelected ? 40 : isTransferring ? 35 : isEnRoute ? 30 : isInAttention ? 25 : 10
+            isSelected
+              ? 40
+              : isTransferring || isAtClinicStop
+              ? 35
+              : isEnRoute
+              ? 30
+              : isInAttention
+              ? 25
+              : 10
           );
           entry.styleKey = styleKey;
         }
