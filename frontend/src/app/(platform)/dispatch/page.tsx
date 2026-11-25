@@ -182,110 +182,56 @@ export default function DispatchCenterPage() {
                 />
               </div>
 
-              {/* Central View Switcher Tabs (fills remaining column height) */}
-              <div className="ops-panel flex flex-1 flex-col rounded-lg border border-slate-800/90 bg-[#0a1626] p-3 lg:min-h-0">
-                <div className="mb-3 flex shrink-0 items-center justify-between gap-2 border-b border-slate-800/80 pb-1">
-                  <div
-                    role="tablist"
-                    aria-label="Vista táctica"
-                    className="core-tablist core-scroller"
-                  >
-                    {CENTER_TABS.map((tab, idx) => {
-                      const active = centerView === tab.id;
-                      const Icon = tab.icon;
-                      return (
-                        <button
-                          key={tab.id}
-                          id={`dispatch-tab-${tab.id}`}
-                          ref={(el) => {
-                            tabRefs.current[idx] = el;
-                          }}
-                          type="button"
-                          role="tab"
-                          aria-selected={active}
-                          tabIndex={active ? 0 : -1}
-                          onClick={() => setCenterView(tab.id)}
-                          onKeyDown={(e) => handleCenterTabKeyDown(e, idx)}
-                          className={cn(
-                            "core-tab inline-flex cursor-pointer items-center gap-1.5 rounded-t px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50",
-                            active
-                              ? "bg-sky-500/15 text-sky-200"
-                              : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
-                          )}
-                        >
-                          <Icon className="h-3.5 w-3.5" />
-                          <span>{tab.label}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
+              {/* Central View Switcher Tabs */}
+              <div className="ops-panel flex shrink-0 items-center justify-between gap-2 rounded-lg border border-slate-800/90 bg-[#0a1626] px-3 py-1.5">
+                <div
+                  role="tablist"
+                  aria-label="Vista táctica"
+                  className="core-tablist core-scroller"
+                >
+                  {CENTER_TABS.map((tab, idx) => {
+                    const active = centerView === tab.id;
+                    const Icon = tab.icon;
+                    return (
+                      <button
+                        key={tab.id}
+                        id={`dispatch-tab-${tab.id}`}
+                        ref={(el) => {
+                          tabRefs.current[idx] = el;
+                        }}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        tabIndex={active ? 0 : -1}
+                        onClick={() => setCenterView(tab.id)}
+                        onKeyDown={(e) => handleCenterTabKeyDown(e, idx)}
+                        className={cn(
+                          "core-tab inline-flex cursor-pointer items-center gap-1.5 rounded-t px-3 py-1.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-500/50",
+                          active
+                            ? "bg-sky-500/15 text-sky-200"
+                            : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+                        )}
+                      >
+                        <Icon className="h-3.5 w-3.5" />
+                        <span>{tab.label}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+              </div>
 
-                {/* Tab Panel: Vista Híbrida (Mapa + Flota) */}
-                {centerView === "hybrid" && (
-                  <div
-                    role="tabpanel"
-                    aria-labelledby="dispatch-tab-hybrid"
-                    className="core-scroller flex-1 space-y-3 overflow-y-auto pr-0.5"
-                  >
-                    {simState && (
-                      <div className="space-y-1.5">
-                        <div className="flex items-center justify-between text-[11px] text-slate-400">
-                          <span className="font-semibold uppercase tracking-wider text-slate-300">
-                            Mapa Táctico Geoespacial
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full bg-rose-400" />
-                              TAM
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full bg-orange-400" />
-                              TAB
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <span className="h-2 w-2 rounded-full bg-cyan-400" />
-                              VMD
-                            </span>
-                          </div>
-                        </div>
-                        <AburraMap
-                          zones={simState.zones}
-                          bases={simState.bases}
-                          careCenters={simState.care_centers}
-                          units={simState.units}
-                          activeRequests={focusedRequests}
-                          liveMap={tacticalLiveMap}
-                          trafficFactor={simState.traffic_factor ?? 1.0}
-                          selectedUnitId={selectedMapUnitId}
-                          onSelectUnit={setSelectedMapUnitId}
-                          heightClass="h-[265px]"
-                        />
-                      </div>
-                    )}
-                    <QueryErrorAlert
-                      className="mb-2"
-                      queries={[eligibilityQuery]}
-                    />
-                    <EligibilityPanel
-                      eligibility={eligibilityQuery.data}
-                      status={detail.status}
-                      assignedUnitId={detail.assigned_unit_id}
-                    />
-                  </div>
-                )}
-
-                {/* Tab Panel: Mapa Táctico Completo */}
-                {centerView === "map" && (
-                  <div
-                    role="tabpanel"
-                    aria-labelledby="dispatch-tab-map"
-                    className="flex flex-1 flex-col gap-2 lg:min-h-0"
-                  >
-                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
-                      <span className="font-semibold uppercase tracking-wider text-slate-300">
-                        Red EMI · Valle de Aburrá (Tráfico{" "}
-                        {(simState?.traffic_factor ?? 1.0).toFixed(2)}x)
+              {/* Tab Panel: Vista Híbrida (Mapa + Flota en cards separados) */}
+              {centerView === "hybrid" && (
+                <div
+                  role="tabpanel"
+                  aria-labelledby="dispatch-tab-hybrid"
+                  className="flex flex-1 flex-col gap-3 lg:min-h-0"
+                >
+                  {/* Card 1: Mapa Táctico Geoespacial */}
+                  <div className="ops-panel shrink-0 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3">
+                    <div className="mb-2 flex items-center justify-between text-[11px] text-slate-400">
+                      <span className="font-bold uppercase tracking-wider text-slate-200">
+                        Mapa Táctico Geoespacial
                       </span>
                       <div className="flex items-center gap-3">
                         <span className="flex items-center gap-1">
@@ -300,96 +246,157 @@ export default function DispatchCenterPage() {
                           <span className="h-2 w-2 rounded-full bg-cyan-400" />
                           VMD
                         </span>
-                        <span className="flex items-center gap-1">
-                          <span className="h-2 w-2 rounded-full bg-emerald-400" />
-                          Clínica
-                        </span>
                       </div>
                     </div>
                     {simState ? (
-                      <div className="flex-1 min-h-[420px]">
-                        <AburraMap
-                          zones={simState.zones}
-                          bases={simState.bases}
-                          careCenters={simState.care_centers}
-                          units={simState.units}
-                          activeRequests={focusedRequests}
-                          liveMap={tacticalLiveMap}
-                          trafficFactor={simState.traffic_factor ?? 1.0}
-                          selectedUnitId={selectedMapUnitId}
-                          onSelectUnit={setSelectedMapUnitId}
-                          heightClass="h-full min-h-[420px]"
-                        />
-                      </div>
+                      <AburraMap
+                        zones={simState.zones}
+                        bases={simState.bases}
+                        careCenters={simState.care_centers}
+                        units={simState.units}
+                        activeRequests={focusedRequests}
+                        liveMap={tacticalLiveMap}
+                        trafficFactor={simState.traffic_factor ?? 1.0}
+                        selectedUnitId={selectedMapUnitId}
+                        onSelectUnit={setSelectedMapUnitId}
+                        heightClass="h-[250px]"
+                      />
                     ) : (
-                      <div className="flex flex-1 min-h-[320px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
+                      <div className="flex h-[250px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
                         Cargando estado geoespacial…
                       </div>
                     )}
                   </div>
-                )}
 
-                {/* Tab Panel: Detalle Clínico */}
-                {centerView === "clinical" && (
-                  <div
-                    role="tabpanel"
-                    aria-labelledby="dispatch-tab-clinical"
-                    className="core-scroller flex-1 space-y-3 overflow-y-auto text-xs"
-                  >
-                    <dl className="grid grid-cols-2 gap-3 rounded-md border border-slate-800/80 bg-[#06101d] p-4">
-                      <div>
-                        <dt className="text-slate-400">Clasificación EMI</dt>
-                        <dd className="mt-0.5 font-mono font-semibold text-slate-100">
-                          Código {detail.urgency_level} · Meta ≤{" "}
-                          {detail.context.target_response_min} min
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-400">Motivo de consulta</dt>
-                        <dd className="mt-0.5 font-semibold text-slate-100">
-                          {detail.service_type}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-400">Zona y franja</dt>
-                        <dd className="mt-0.5 font-mono text-slate-100">
-                          {detail.zone_id} ·{" "}
-                          {detail.context.is_peak_hour
-                            ? "Hora pico"
-                            : "Hora valle"}{" "}
-                          ({detail.context.is_weekend ? "Fin de semana" : "Hábil"})
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-400">Demanda territorial</dt>
-                        <dd className="mt-0.5 font-mono text-slate-100">
-                          4h: {detail.context.zone_demand_4h} · 8h:{" "}
-                          {detail.context.zone_demand_8h} · 12h:{" "}
-                          {detail.context.zone_demand_12h}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-400">Hora solicitud</dt>
-                        <dd className="mt-0.5 font-mono text-slate-200">
-                          {detail.request_datetime.replace("T", " ").slice(0, 16)}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="text-slate-400">Asignación / Llegada</dt>
-                        <dd className="mt-0.5 font-mono text-slate-200">
-                          {detail.assignment_datetime
-                            ? detail.assignment_datetime.slice(11, 16)
-                            : "—"}{" "}
-                          /{" "}
-                          {detail.arrival_datetime
-                            ? detail.arrival_datetime.slice(11, 16)
-                            : "—"}
-                        </dd>
-                      </div>
-                    </dl>
+                  {/* Card 2: Unidades Elegibles */}
+                  <div className="ops-panel core-scroller flex-1 overflow-y-auto rounded-lg border border-slate-800/90 bg-[#0a1626] p-4 lg:min-h-0">
+                    <QueryErrorAlert
+                      className="mb-2"
+                      queries={[eligibilityQuery]}
+                    />
+                    <EligibilityPanel
+                      eligibility={eligibilityQuery.data}
+                      status={detail.status}
+                      assignedUnitId={detail.assigned_unit_id}
+                    />
                   </div>
-                )}
-              </div>
+                </div>
+              )}
+
+              {/* Tab Panel: Mapa Táctico Completo */}
+              {centerView === "map" && (
+                <div
+                  role="tabpanel"
+                  aria-labelledby="dispatch-tab-map"
+                  className="ops-panel flex flex-1 flex-col gap-2 rounded-lg border border-slate-800/90 bg-[#0a1626] p-3 lg:min-h-0"
+                >
+                  <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 text-[11px] text-slate-400">
+                    <span className="font-bold uppercase tracking-wider text-slate-200">
+                      Red EMI · Valle de Aburrá (Tráfico{" "}
+                      {(simState?.traffic_factor ?? 1.0).toFixed(2)}x)
+                    </span>
+                    <div className="flex items-center gap-3">
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-rose-400" />
+                        TAM
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-orange-400" />
+                        TAB
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-cyan-400" />
+                        VMD
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400" />
+                        Clínica
+                      </span>
+                    </div>
+                  </div>
+                  {simState ? (
+                    <div className="flex-1 min-h-[420px]">
+                      <AburraMap
+                        zones={simState.zones}
+                        bases={simState.bases}
+                        careCenters={simState.care_centers}
+                        units={simState.units}
+                        activeRequests={focusedRequests}
+                        liveMap={tacticalLiveMap}
+                        trafficFactor={simState.traffic_factor ?? 1.0}
+                        selectedUnitId={selectedMapUnitId}
+                        onSelectUnit={setSelectedMapUnitId}
+                        heightClass="h-full min-h-[420px]"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex flex-1 min-h-[320px] items-center justify-center rounded border border-slate-800 bg-[#06101d] text-xs text-slate-400">
+                      Cargando estado geoespacial…
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab Panel: Detalle Clínico */}
+              {centerView === "clinical" && (
+                <div
+                  role="tabpanel"
+                  aria-labelledby="dispatch-tab-clinical"
+                  className="ops-panel core-scroller flex-1 space-y-3 overflow-y-auto rounded-lg border border-slate-800/90 bg-[#0a1626] p-4 text-xs lg:min-h-0"
+                >
+                  <dl className="grid grid-cols-2 gap-3 rounded-md border border-slate-800/80 bg-[#06101d] p-4">
+                    <div>
+                      <dt className="text-slate-400">Clasificación EMI</dt>
+                      <dd className="mt-0.5 font-mono font-semibold text-slate-100">
+                        Código {detail.urgency_level} · Meta ≤{" "}
+                        {detail.context.target_response_min} min
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-400">Motivo de consulta</dt>
+                      <dd className="mt-0.5 font-semibold text-slate-100">
+                        {detail.service_type}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-400">Zona y franja</dt>
+                      <dd className="mt-0.5 font-mono text-slate-100">
+                        {detail.zone_id} ·{" "}
+                        {detail.context.is_peak_hour
+                          ? "Hora pico"
+                          : "Hora valle"}{" "}
+                        ({detail.context.is_weekend ? "Fin de semana" : "Hábil"})
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-400">Demanda territorial</dt>
+                      <dd className="mt-0.5 font-mono text-slate-100">
+                        4h: {detail.context.zone_demand_4h} · 8h:{" "}
+                        {detail.context.zone_demand_8h} · 12h:{" "}
+                        {detail.context.zone_demand_12h}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-400">Hora solicitud</dt>
+                      <dd className="mt-0.5 font-mono text-slate-200">
+                        {detail.request_datetime.replace("T", " ").slice(0, 16)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-400">Asignación / Llegada</dt>
+                      <dd className="mt-0.5 font-mono text-slate-200">
+                        {detail.assignment_datetime
+                          ? detail.assignment_datetime.slice(11, 16)
+                          : "—"}{" "}
+                        /{" "}
+                        {detail.arrival_datetime
+                          ? detail.arrival_datetime.slice(11, 16)
+                          : "—"}
+                      </dd>
+                    </div>
+                  </dl>
+                </div>
+              )}
             </>
           )}
         </section>
