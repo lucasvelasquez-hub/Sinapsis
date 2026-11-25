@@ -124,6 +124,9 @@ export default function SimulationPage() {
 
   const inflightRoutes = useRef<Set<string>>(new Set());
   const arrivedSent = useRef<Set<string>>(new Set());
+  const transferTargets = useRef<
+    Record<string, { centerId: string; lat: number; lon: number; zoneId: string }>
+  >({});
 
   const arriveMutation = useMutation({
     mutationFn: coreApi.arriveSimulationService,
@@ -253,8 +256,10 @@ export default function SimulationPage() {
           let tgtZone = cur.targetZoneId;
           let route = cur.route;
           let routeIdx = cur.routeIdx ?? 0;
+          let isTransferring = false;
 
           if (assignedReq) {
+            delete transferTargets.current[u.unit_id];
             if (tgtZone !== assignedReq.zone_id) {
               tgtZone = assignedReq.zone_id;
               route = undefined;
@@ -262,15 +267,41 @@ export default function SimulationPage() {
             }
             tgtLat = assignedReq.lat;
             tgtLon = assignedReq.lon;
+          } else if (!u.simulated_available && careCenters.length > 0) {
+            // EN_TRASLADO: dirigirse por calles a la clínica destino (o la más cercana)
+            isTransferring = true;
+            let dest = transferTargets.current[u.unit_id];
+            if (!dest) {
+              const nearest = careCenters
+                .map((c) => ({ c, d: haversineKm(cur.lat, cur.lon, c.lat, c.lon) }))
+                .sort((a, b) => a.d - b.d)[0].c;
+              dest = {
+                centerId: nearest.center_id,
+                lat: nearest.lat,
+                lon: nearest.lon,
+                zoneId: nearest.zone_id,
+              };
+              transferTargets.current[u.unit_id] = dest;
+            }
+            const transferKey = `CLINIC:${dest.centerId}`;
+            if (tgtZone !== transferKey) {
+              tgtZone = transferKey;
+              route = undefined;
+              routeIdx = 0;
+            }
+            tgtLat = dest.lat;
+            tgtLon = dest.lon;
           } else {
+            delete transferTargets.current[u.unit_id];
             const z = zoneById.get(tgtZone) ?? zones[0];
+            tgtZone = z.zone_id;
             tgtLat = z.lat_centroid;
             tgtLon = z.lon_centroid;
           }
 
           if (!route || route.length === 0) {
             requestRoute(u.unit_id, cur.lat, cur.lon, tgtLat, tgtLon, tgtZone);
-            next[u.unit_id] = { ...cur, targetZoneId: tgtZone };
+            next[u.unit_id] = { ...cur, targetZoneId: tgtZone, transferring: isTransferring };
             continue;
           }
 
@@ -286,7 +317,7 @@ export default function SimulationPage() {
             ) {
               arrivedSent.current.add(assignedReq.service_id);
               arriveMutation.mutate(assignedReq.service_id);
-            } else if (!assignedReq && u.simulated_available) {
+            } else if (!assignedReq && !isTransferring && u.simulated_available) {
               const sector = zonesByBase.get(u.base_id);
               const pool = sector && sector.length > 0 ? sector : zones;
               nextZone = pool[Math.floor(Math.random() * pool.length)].zone_id;
@@ -297,6 +328,7 @@ export default function SimulationPage() {
               targetZoneId: nextZone,
               route: nextZone !== tgtZone ? undefined : route,
               routeIdx: nextZone !== tgtZone ? 0 : moved.routeIdx,
+              transferring: isTransferring && !moved.reachedEnd,
             };
           } else {
             next[u.unit_id] = {
@@ -305,6 +337,7 @@ export default function SimulationPage() {
               targetZoneId: tgtZone,
               route,
               routeIdx: moved.routeIdx,
+              transferring: isTransferring,
             };
           }
         }
@@ -313,7 +346,7 @@ export default function SimulationPage() {
     }, SIM_TICK_MS);
 
     return () => clearInterval(timer);
-  }, [running, speed, trafficFactor, zones, bases, units, activeRequests]);
+  }, [running, speed, trafficFactor, zones, bases, careCenters, units, activeRequests]);
 
   // Periodically send live lat/lon telemetry to backend every 15s
   useEffect(() => {
@@ -397,8 +430,17 @@ export default function SimulationPage() {
     },
     onSuccess: (res, vars) => {
       if (res.stretcher_retention_min && res.released_unit_id) {
+        const destCenter = careCenters.find((c) => c.center_id === vars.destination_center_id);
+        if (destCenter) {
+          transferTargets.current[res.released_unit_id] = {
+            centerId: destCenter.center_id,
+            lat: destCenter.lat,
+            lon: destCenter.lon,
+            zoneId: destCenter.zone_id,
+          };
+        }
         setSimNotice(
-          `Regla D08: ${res.released_unit_id} en retención de camilla (~${res.stretcher_retention_min} min) en ${res.destination_center ?? "clínica"}.`
+          `Regla D08: ${res.released_unit_id} en traslado/retención de camilla (~${res.stretcher_retention_min} min) hacia ${res.destination_center ?? "clínica"}.`
         );
       }
       queryClient.setQueryData(["simulation-state"], (old: typeof stateQuery.data) => {
@@ -607,6 +649,7 @@ export default function SimulationPage() {
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-orange-400" /> TAB</span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-cyan-400" /> VMD</span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 animate-pulse rounded-full bg-cyan-400 ring-2 ring-cyan-400/50" /> En camino</span>
+                  <span className="flex items-center gap-1"><span className="core-siren h-2.5 w-2.5 rounded-full" /> En traslado</span>
                   <span className="flex items-center gap-1"><span className="h-2.5 w-2.5 rotate-45 bg-violet-400" /> Base</span>
                   <span className="flex items-center gap-1">
                     <svg width="11" height="11" viewBox="0 0 18 18" aria-hidden="true">

@@ -19,6 +19,7 @@ export interface LivePos {
   targetZoneId: string;
   route?: Array<[number, number]>;
   routeIdx?: number;
+  transferring?: boolean;
 }
 
 const DARK_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
@@ -74,6 +75,7 @@ function renderUnitContent(
     dashed,
     opacity,
     isEnRoute,
+    isTransferring,
   }: {
     fillColor: string;
     borderColor: string;
@@ -82,14 +84,20 @@ function renderUnitContent(
     dashed: boolean;
     opacity: number;
     isEnRoute: boolean;
+    isTransferring: boolean;
   }
 ): void {
   const box = size + 12;
-  const ping = isEnRoute
+  const ping = isTransferring
+    ? `<span class="core-siren-halo" style="position:absolute;inset:3px;border-radius:9999px;pointer-events:none;"></span>`
+    : isEnRoute
     ? `<span class="animate-ping" style="position:absolute;inset:2px;border-radius:9999px;background:${fillColor};opacity:0.75;pointer-events:none;"></span>`
     : "";
-  const blinkClass = isEnRoute ? "animate-pulse" : "";
-  el.innerHTML = `<div style="position:relative;width:${box}px;height:${box}px;display:flex;align-items:center;justify-content:center;pointer-events:auto;">${ping}<span class="${blinkClass}" style="position:relative;width:${size}px;height:${size}px;border-radius:9999px;background:${fillColor};border:${borderWidth}px ${dashed ? "dashed" : "solid"} ${borderColor};opacity:${opacity};box-shadow:0 0 6px rgba(15,23,42,0.85);"></span></div>`;
+  const dotClass = isTransferring ? "core-siren" : isEnRoute ? "animate-pulse" : "";
+  const dotStyle = isTransferring
+    ? `position:relative;width:${size}px;height:${size}px;border-radius:9999px;border:${borderWidth}px solid ${borderColor};opacity:${opacity};`
+    : `position:relative;width:${size}px;height:${size}px;border-radius:9999px;background:${fillColor};border:${borderWidth}px ${dashed ? "dashed" : "solid"} ${borderColor};opacity:${opacity};box-shadow:0 0 6px rgba(15,23,42,0.85);`;
+  el.innerHTML = `<div style="position:relative;width:${box}px;height:${box}px;display:flex;align-items:center;justify-content:center;pointer-events:auto;">${ping}<span class="${dotClass}" style="${dotStyle}"></span></div>`;
 }
 
 function buildZonesGeoJson(
@@ -190,12 +198,14 @@ function buildRoutesGeoJson(
   liveMap: Record<string, LivePos>
 ): GeoJSON.FeatureCollection {
   const features: GeoJSON.Feature[] = [];
+  const drawnUnits = new Set<string>();
   for (const r of activeRequests) {
     if (r.status === "DISPATCHED" && r.assigned_unit_id && !r.arrival_datetime) {
       const pos = liveMap[r.assigned_unit_id];
-      if (pos?.route && pos.route.length > 1) {
+      if (pos?.route && pos.route.length >= 1) {
         const remaining = pos.route.slice(pos.routeIdx ?? 0);
-        if (remaining.length > 1) {
+        if (remaining.length >= 1) {
+          drawnUnits.add(r.assigned_unit_id);
           features.push({
             type: "Feature",
             geometry: {
@@ -205,10 +215,28 @@ function buildRoutesGeoJson(
                 ...remaining.map(([lat, lon]) => [lon, lat]),
               ],
             },
-            properties: { service_id: r.service_id },
+            properties: { service_id: r.service_id, color: "#38bdf8" },
           });
         }
       }
+    }
+  }
+  // Rutas de móviles EN_TRASLADO dirigiéndose a clínica/hospital
+  for (const [uid, pos] of Object.entries(liveMap)) {
+    if (!pos.transferring || drawnUnits.has(uid) || !pos.route || pos.route.length < 1) continue;
+    const remaining = pos.route.slice(pos.routeIdx ?? 0);
+    if (remaining.length >= 1) {
+      features.push({
+        type: "Feature",
+        geometry: {
+          type: "LineString",
+          coordinates: [
+            [pos.lon, pos.lat],
+            ...remaining.map(([lat, lon]) => [lon, lat]),
+          ],
+        },
+        properties: { unit_id: uid, color: "#f43f5e" },
+      });
     }
   }
   return { type: "FeatureCollection", features };
@@ -341,10 +369,10 @@ export default function AburraMap({
         type: "line",
         source: "routes",
         paint: {
-          "line-color": "#38bdf8",
+          "line-color": ["coalesce", ["get", "color"], "#38bdf8"],
           "line-width": 3,
           "line-dasharray": [2, 2],
-          "line-opacity": 0.85,
+          "line-opacity": 0.9,
         },
       });
 
@@ -486,12 +514,13 @@ export default function AburraMap({
       const opState = resolveUnitOperationalState(u, activeRequests, basesById);
       const isEnRoute = opState === "EN_RUTA";
       const isInAttention = opState === "EN_ATENCION";
+      const isTransferring = opState === "EN_TRASLADO";
       const baseColor = UNIT_COLOR[u.unit_type] ?? "#e2e8f0";
       const fillColor =
         opState === "FUERA_SERVICIO"
           ? "#334155"
-          : opState === "EN_TRASLADO"
-          ? "#475569"
+          : isTransferring
+          ? "#ef4444"
           : baseColor;
       const isSelected = selectedUnitId === u.unit_id;
       const borderColor = isSelected
@@ -500,6 +529,8 @@ export default function AburraMap({
         ? "#94a3b8"
         : isInAttention
         ? "#fbbf24"
+        : isTransferring
+        ? "#ffffff"
         : "#0f172a";
       const styleKey = `${fillColor}|${borderColor}|${opState}|${isSelected}`;
       const tooltip = `${u.unit_id} (${u.unit_type}) · ${opState}`;
@@ -511,13 +542,16 @@ export default function AburraMap({
         renderUnitContent(el, {
           fillColor,
           borderColor,
-          size: isSelected ? 18 : 13,
-          borderWidth: isSelected || isInAttention ? 2.5 : 1.5,
+          size: isSelected ? 18 : isTransferring ? 15 : 13,
+          borderWidth: isSelected || isInAttention || isTransferring ? 2.2 : 1.5,
           dashed: opState === "FUERA_SERVICIO",
           opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
           isEnRoute,
+          isTransferring,
         });
-        el.style.zIndex = String(isSelected ? 40 : isEnRoute ? 30 : isInAttention ? 25 : 10);
+        el.style.zIndex = String(
+          isSelected ? 40 : isTransferring ? 35 : isEnRoute ? 30 : isInAttention ? 25 : 10
+        );
 
         const record = {
           marker: new maplibregl.Marker({ element: el, anchor: "center" })
@@ -549,14 +583,15 @@ export default function AburraMap({
           renderUnitContent(entry.el, {
             fillColor,
             borderColor,
-            size: isSelected ? 18 : 13,
-            borderWidth: isSelected || isInAttention ? 2.5 : 1.5,
+            size: isSelected ? 18 : isTransferring ? 15 : 13,
+            borderWidth: isSelected || isInAttention || isTransferring ? 2.2 : 1.5,
             dashed: opState === "FUERA_SERVICIO",
             opacity: opState === "FUERA_SERVICIO" ? 0.55 : 0.95,
             isEnRoute,
+            isTransferring,
           });
           entry.el.style.zIndex = String(
-            isSelected ? 40 : isEnRoute ? 30 : isInAttention ? 25 : 10
+            isSelected ? 40 : isTransferring ? 35 : isEnRoute ? 30 : isInAttention ? 25 : 10
           );
           entry.styleKey = styleKey;
         }
