@@ -44,6 +44,7 @@ from app.schemas.simulation import (
 )
 from app.services.audit_service import record_audit_event
 from app.services.eligibility_service import resolve_units_current_zone
+from app.services.flow_service import inject_due_flow_requests
 from app.services.recommendation_service import retention_median_min
 from app.services.simulation_service import (
     advance_sim_clock,
@@ -665,23 +666,26 @@ def release_unit_in_simulation(db: Session, service_id: str) -> CompleteServiceO
     )
 
 
-def advance_simulation_clock(db: Session, minutes: int) -> AdvanceClockOut:
+def advance_simulation_clock(db: Session, minutes: int, live: bool = False) -> AdvanceClockOut:
     sim = get_or_create_simulation_session(db, for_update=True)
     new_dt = sim.current_sim_datetime + timedelta(minutes=minutes)
     advance_sim_clock(db, new_dt)
     day_type, traffic_factor = _traffic_for_dt(db, new_dt)
-    record_audit_event(
-        db,
-        event_type="SIMULATION_CLOCK_ADVANCED",
-        entity_type="simulation_session",
-        entity_id=sim.session_id,
-        payload={"minutes": minutes, "new_sim_datetime": new_dt.isoformat()},
-    )
+    if not live:  # los ticks del reloj vivo no son una acción humana: no se auditan uno a uno
+        record_audit_event(
+            db,
+            event_type="SIMULATION_CLOCK_ADVANCED",
+            entity_type="simulation_session",
+            entity_id=sim.session_id,
+            payload={"minutes": minutes, "new_sim_datetime": new_dt.isoformat()},
+        )
+    injected = inject_due_flow_requests(db)
     db.commit()
     return AdvanceClockOut(
         current_sim_datetime=new_dt,
         day_type=day_type,
         traffic_factor=traffic_factor,
+        injected_requests=injected,
     )
 
 

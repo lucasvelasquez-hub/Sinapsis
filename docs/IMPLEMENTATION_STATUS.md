@@ -3,7 +3,7 @@
 Última actualización: 2026-11-25
 
 ## Fase Actual
-**Fase 12 (Reglas EMI, Replay de Escenarios, Mapa MapLibre e Indicadores)** — Motor de decisión alineado con las reglas R01–R07 y D01–D08, replay en memoria de los 14 escenarios de referencia, 12 KPIs con procedencia observada vs. simulada y simulador geográfico MapLibre GL en `/simulation` (Supabase en `d9b2e5a1c4f0`).
+**Fase 12 (Reglas EMI, Replay de Escenarios, Mapa MapLibre e Indicadores)** — Motor de decisión alineado con las reglas R01–R07 y D01–D08, replay en memoria de los 14 escenarios de referencia, 12 KPIs con procedencia observada vs. simulada y simulador geográfico MapLibre GL en `/simulation` (Supabase en `e3c8a7b5d1f2`).
 
 ## Progreso General
 - [x] Fase 1–10: Monorepo, PostgreSQL/Supabase, modelo de datos (4 schemas), ML cronológico, API REST, UI operativa y suite de tests.
@@ -11,7 +11,7 @@
 - [x] Fase 12: Política pura de asignación EMI (`domain/assignment_policy.py`), ciclo operativo con retención hospitalaria D08 y liberación manual, desvío R06 confirmable, reclasificación R07, replay en memoria de los 14 escenarios, 12 KPIs observados vs. simulados y mapa MapLibre rotado 90° con capas Demanda/Cobertura D03/Sectores D01 y simbología de retención STOP.
 
 ## Funcionalidades Terminadas
-- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic hasta `d9b2e5a1c4f0`. Auditoría solo-inserción para el rol `core_app`.
+- **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic hasta `e3c8a7b5d1f2`. Auditoría solo-inserción para el rol `core_app`.
 - **Geografía y tiempos**: Matriz origen-destino (`raw.zone_travel_times`) × factores de tráfico (`raw.traffic_factors`) + distancia Haversine (`domain/geo.py`) con posiciones simuladas/en vivo. Costo operativo y cobertura geográfica de zonas `ALTA` activos en el motor.
 - **ML & Predicción**: Evaluación cronológica (70/15/15) sobre datos EMI en Supabase. Artefacto v3: `hist_gradient_boosting_mae` con demanda previa por zona y sistema; MAE test `10.9695`, p90 `21.9777` (anterior `linear_regression_ridge` sin demanda: MAE test `11.9183`).
 - **Motores de Decisión**:
@@ -24,9 +24,10 @@
 - **Frontend Next.js 16**: Pantallas `/dispatch`, `/dashboard`, `/intelligence`, `/fleet`, `/analytics`, `/benchmarks` (scorecard consolidado de 14 escenarios, gráfica ECharts CORE vs. Referencia, detalle clickeable con filtro de discrepancias y exportación JSON/CSV) y `/simulation` (MapLibre GL con capas Demanda/Cobertura D03/Sectores D01, modo claro High-Contrast `#d1e1ff` y reloj vivo). En Despacho se resalta `Regla R06:` antes de confirmar (en segundo clic), se marca `PREDICHO` en retención y se omiten `OBSERVADO`/`CALCULADO`.
 
 ## Decisiones Técnicas y Alcance
+- **Reproducción de flujos y evaluación en `/simulation`**: panel *Flujo mensual* carga `data/processed/flujo_AAAA_MM.json` (`scripts/generate_monthly_flow.py`); el estado vive en la clave `_flow` de `core.simulation_sessions.active_assignments_json` y cada avance del reloj inyecta las solicitudes vencidas (`service_id` = `id_flujo`, idempotente, auditado como `FLOW_REQUESTS_INJECTED`). Reloj vivo: mientras la simulación corre (1x/3x/10x/30x) el reloj del backend avanza al ritmo de la animación (`POST /simulation/advance-clock` con `live: true`, sin auditar cada tick). Panel *Evaluación de recomendaciones* (`GET /simulation/evaluation`): `expected_response_min` del móvil asignado (PREDICHO) frente a llegada − solicitud con el reloj de simulación (SIMULADO), % de despachos al #1, MAE y sesgo. Ese tiempo esperado es casi siempre `MATRIX_TRAFFIC_ESTIMATE` (el modelo ML solo ordena sin matriz ni distancia); por eso cada candidato guarda además `ml_expected_min` (revisión `e3c8a7b5d1f2`), la predicción del modelo, y el panel compara ambas con la llegada simulada. No miden lo mismo: la matriz estima desplazamiento; el modelo, el tiempo de respuesta histórico, que en urgencias bajas incluye la espera en cola.
 - **Fuente de tiempo esperado**: Combina matriz O-D × tráfico, distancia Haversine desde posición simulada/en vivo e histórico/ML (no usa telemetría GPS externa de producción).
 - **Replay sin efectos secundarios**: `scenario_replay.py` corre completamente en memoria sobre `06_escenarios_referencia.xlsx` y no escribe en `decision.dispatch_decisions` ni en `core.audit_events`.
-- **Base de datos**: Supabase (`DATABASE_URL` en `backend/.env`, revisión `d9b2e5a1c4f0`); Docker local (`localhost:5433`) para tests (`tests/conftest.py`).
+- **Base de datos**: Supabase (`DATABASE_URL` en `backend/.env`, revisión `e3c8a7b5d1f2`); Docker local (`localhost:5433`) para tests (`tests/conftest.py`).
 
 ## Fuera de alcance / Pendientes funcionales (aplazados)
 - Modelo ML dedicado de probabilidad de traslado (hoy D06 usa motivos de consulta de traslado probable).

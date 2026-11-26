@@ -137,12 +137,15 @@ class ArriveServiceOut(BaseModel):
 
 class AdvanceClockIn(BaseModel):
     minutes: int = Field(default=10, ge=1, le=720)
+    # Tick del reloj vivo (sincronizado con la animación): no se audita uno a uno.
+    live: bool = False
 
 
 class AdvanceClockOut(BaseModel):
     current_sim_datetime: datetime
     day_type: str
     traffic_factor: float
+    injected_requests: int = 0  # solicitudes del flujo que entraron con este avance
 
 
 class GenerateRequestsIn(BaseModel):
@@ -151,3 +154,61 @@ class GenerateRequestsIn(BaseModel):
 
 class GenerateRequestsOut(BaseModel):
     created: list[SimRequestOut]
+
+
+class FlowInfoOut(BaseModel):
+    name: str
+    month: str
+    total: int
+
+
+class FlowLoadIn(BaseModel):
+    name: str = Field(..., min_length=1, max_length=64)
+
+
+class FlowStatusOut(BaseModel):
+    active: bool
+    name: str | None = None
+    month: str | None = None
+    total: int = 0
+    injected: int = 0
+    remaining: int = 0
+    next_request_datetime: datetime | None = None
+    last_request_datetime: datetime | None = None
+    finished: bool = False
+
+
+class EvaluationRowOut(BaseModel):
+    service_id: str
+    request_datetime: datetime
+    urgency_level: str
+    zone_id: str
+    recommended_unit_id: str | None
+    assigned_unit_id: str | None
+    assigned_rank: int | None  # None: asignado fuera del Top 3
+    followed_top1: bool
+    predicted_min: float | None  # tiempo esperado de la recomendación (ordena el Top 3)
+    estimation_type: str | None  # de dónde sale predicted_min (p. ej. MATRIX_TRAFFIC_ESTIMATE)
+    ml_predicted_min: float | None  # PREDICHO por el modelo ML para el móvil asignado
+    simulated_min: float | None  # SIMULADO: llegada - solicitud, con el reloj de simulación
+    error_min: float | None  # simulado - predicted_min
+    ml_error_min: float | None  # simulado - ml_predicted_min
+
+
+class EvaluationSummaryOut(BaseModel):
+    requests: int
+    decided: int
+    arrived: int
+    followed_top1_rate: float | None
+    mae_min: float | None  # del tiempo esperado de la recomendación
+    bias_min: float | None  # > 0: la estimación subestima
+    within_5_min_rate: float | None
+    ml_mae_min: float | None  # del modelo ML (mismas llegadas con predicción ML)
+    ml_bias_min: float | None
+    ml_within_5_min_rate: float | None
+
+
+class SimulationEvaluationOut(BaseModel):
+    scope: str
+    summary: EvaluationSummaryOut
+    rows: list[EvaluationRowOut]

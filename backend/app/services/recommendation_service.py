@@ -128,6 +128,9 @@ class ScoredCandidate:
     compatibility_rank: int
     factors: list[str]
     warnings: list[str]
+    # Predicción del modelo ML para el par (servicio, móvil): se guarda para evaluarla, pero
+    # el tiempo que ordena es `expected_response_min` (matriz × tráfico si hay datos).
+    ml_expected_min: float | None = None
 
 
 def _effective_weights(
@@ -405,7 +408,7 @@ def score_candidates(
     best_vmd_id = units[best_vmd_idx].unit_id if best_vmd_idx is not None else None
     d06_transfer = service.urgency_level == "07" and _d06_possible_transfer(service.service_type)
     scored: list[ScoredCandidate] = []
-    for idx, (unit, (_, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
+    for idx, (unit, (ml_pred, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
         zip(units, predictions, norm_time, norm_workload, norm_cost, norm_coverage, strict=True)
     ):
         compat_rank = compat_ranks.get(unit.unit_id, NO_RULE_RANK)
@@ -511,6 +514,7 @@ def score_candidates(
                 compatibility_rank=compat_rank,
                 factors=factors,
                 warnings=warnings,
+                ml_expected_min=ml_pred,
             )
         )
     return _order_by_policy(
@@ -786,6 +790,7 @@ def evaluate_recommendations(db: Session, service_id: str) -> RecommendationOut:
             coverage_penalty=c.coverage_penalty,
             expected_response_min=c.expected_response_min,
             distance_km=c.distance_km,
+            ml_expected_min=c.ml_expected_min,
             estimated_travel_min=c.estimated_travel_min,
             estimated_cost=c.estimated_cost,
             recommended_role=c.recommended_role,
@@ -871,6 +876,7 @@ def _to_out(
             coverage_penalty=c.coverage_penalty,
             expected_response_min=c.expected_response_min,
             distance_km=c.distance_km,
+            ml_expected_min=c.ml_expected_min,
             estimated_travel_min=c.estimated_travel_min,
             estimated_cost=c.estimated_cost,
             recommended_role=c.recommended_role,

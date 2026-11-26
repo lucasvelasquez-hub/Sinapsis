@@ -21,6 +21,7 @@ from app.services.simulation_service import (
     get_or_create_simulation_session,
     get_units_busy_until,
     get_units_workload_windows,
+    is_internal_key,
 )
 
 NO_RULE_RANK = 99
@@ -73,7 +74,7 @@ def resolve_units_current_zone(
         finished_sim_sids: list[str] = []
         sim_unit_by_sid: dict[str, tuple[datetime, str]] = {}
         for uid, entries in sim_entries.items():
-            if uid == "_positions":
+            if is_internal_key(uid):
                 continue
             if isinstance(entries, dict):
                 entries = [entries]
@@ -148,7 +149,7 @@ def _en_route_diversions(
     raw = sim_session.active_assignments_json or {}
     candidates: dict[str, str] = {}
     for unit_id, entries in raw.items():
-        if unit_id == "_positions":
+        if is_internal_key(str(unit_id)):
             continue
         rows = [entries] if isinstance(entries, dict) else entries
         if not isinstance(rows, list):

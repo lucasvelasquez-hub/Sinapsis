@@ -51,6 +51,13 @@ def get_or_create_simulation_session(db: Session, for_update: bool = False) -> S
 
 
 POSITIONS_KEY = "_positions"
+# Estado del flujo mensual en reproducción (app/services/flow_service.py).
+FLOW_KEY = "_flow"
+
+
+def is_internal_key(key: str) -> bool:
+    """Claves de estado de la sesión (`_positions`, `_flow`) que no son móviles."""
+    return key.startswith("_")
 
 
 def resync_simulation_session(db: Session, unit_ids: Collection[str]) -> SimulationSession:
@@ -201,8 +208,8 @@ def _prune_finished(assignments: dict, clock: datetime) -> dict:
     cutoff = (clock - ASSIGNMENT_RETENTION).isoformat()
     pruned: dict = {}
     for unit_id, entries in assignments.items():
-        if unit_id == POSITIONS_KEY and isinstance(entries, dict):
-            pruned[POSITIONS_KEY] = entries
+        if is_internal_key(unit_id):
+            pruned[unit_id] = entries
             continue
         unit_entries = [entries] if isinstance(entries, dict) else entries
         kept = [e for e in unit_entries if e.get("busy_until", "") >= cutoff]

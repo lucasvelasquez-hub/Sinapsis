@@ -1,6 +1,6 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import APIRouter, Body, Depends
+from fastapi import APIRouter, Body, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -12,14 +12,19 @@ from app.schemas.simulation import (
     CompleteServiceOut,
     DivertUnitIn,
     DivertUnitOut,
+    FlowInfoOut,
+    FlowLoadIn,
+    FlowStatusOut,
     GenerateRequestsIn,
     GenerateRequestsOut,
     PositionsBatchIn,
     PositionsBatchOut,
     ReclassifyServiceIn,
     ReclassifyServiceOut,
+    SimulationEvaluationOut,
     SimulationStateOut,
 )
+from app.services.flow_service import flow_status, list_flows, load_flow, unload_flow
 from app.services.simulation_control_service import (
     advance_simulation_clock,
     arrive_service_in_simulation,
@@ -31,6 +36,7 @@ from app.services.simulation_control_service import (
     reclassify_service_in_simulation,
     release_unit_in_simulation,
 )
+from app.services.simulation_evaluation_service import evaluate_simulation
 
 router = APIRouter(prefix="/simulation", tags=["simulation"])
 DbDep = Annotated[Session, Depends(get_db)]
@@ -69,7 +75,7 @@ def simulation_release_unit(service_id: str, db: DbDep) -> CompleteServiceOut:
 
 @router.post("/advance-clock", response_model=AdvanceClockOut)
 def simulation_advance_clock(payload: AdvanceClockIn, db: DbDep) -> AdvanceClockOut:
-    return advance_simulation_clock(db, payload.minutes)
+    return advance_simulation_clock(db, payload.minutes, live=payload.live)
 
 
 @router.post("/generate", response_model=GenerateRequestsOut)
@@ -95,3 +101,30 @@ def simulation_divert_unit(
     db: DbDep,
 ) -> DivertUnitOut:
     return divert_unit_in_simulation(db, payload)
+
+
+@router.get("/flows", response_model=list[FlowInfoOut])
+def simulation_list_flows() -> list[FlowInfoOut]:
+    return list_flows()
+
+
+@router.get("/flow", response_model=FlowStatusOut)
+def simulation_flow_status(db: DbDep) -> FlowStatusOut:
+    return flow_status(db)
+
+
+@router.post("/flow/load", response_model=FlowStatusOut)
+def simulation_load_flow(payload: FlowLoadIn, db: DbDep) -> FlowStatusOut:
+    return load_flow(db, payload.name)
+
+
+@router.post("/flow/unload", response_model=FlowStatusOut)
+def simulation_unload_flow(db: DbDep) -> FlowStatusOut:
+    return unload_flow(db)
+
+
+@router.get("/evaluation", response_model=SimulationEvaluationOut)
+def simulation_evaluation(
+    db: DbDep, scope: Annotated[Literal["flow", "all"], Query()] = "flow"
+) -> SimulationEvaluationOut:
+    return evaluate_simulation(db, scope)

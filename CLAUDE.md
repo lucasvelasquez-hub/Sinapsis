@@ -121,7 +121,7 @@ mantiene listas propias.
 ## Supabase
 
 - Proyecto: `riajvipcxkgljtncqcwj` (`https://riajvipcxkgljtncqcwj.supabase.co`), único (no hay dev/prod separados).
-- **Estado (2026-11-25): Supabase en la revisión `d9b2e5a1c4f0` (head) con el dataset real EMI ingerido**
+- **Estado (2026-11-25): Supabase en la revisión `e3c8a7b5d1f2` (head) con el dataset real EMI ingerido**
   (10.402 servicios históricos + simulados, 26 móviles en 8 bases, 62 zonas, 3.844 pares O-D, 10 centros de
   atención, 72 factores de tráfico, 15 reglas y 5 objetivos). La app de desarrollo apunta a Supabase.
 - La app usa la DB de `DATABASE_URL` (`backend/.env`). Los tests NO: `tests/conftest.py` la fuerza a

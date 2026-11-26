@@ -12,13 +12,17 @@ import {
   Send,
 } from "lucide-react";
 import dynamic from "next/dynamic";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { ErrorAlert, QueryErrorAlert } from "@/components/ErrorAlert";
+import { ProvenanceBadge } from "@/components/ProvenanceBadge";
 import { DispatcherField } from "@/features/decisions/DispatcherField";
 import { URGENCY_BADGE } from "@/features/dispatch/urgency";
 import { SimulateRequestModal } from "@/features/requests/SimulateRequestModal";
 import type { LivePos } from "@/features/simulation/AburraMap";
+import { EvaluationPanel } from "@/features/simulation/EvaluationPanel";
+import { FlowPanel } from "@/features/simulation/FlowPanel";
+import { nextSpeed, type SimSpeed, useLiveSimClock } from "@/features/simulation/liveClock";
 import {
   advanceAlongRoute,
   computeEffectiveSpeedKmh,
@@ -88,7 +92,7 @@ export default function SimulationPage() {
   });
 
   const [running, setRunning] = useState(true);
-  const [speed, setSpeed] = useState<1 | 3>(1);
+  const [speed, setSpeed] = useState<SimSpeed>(1);
   const [layerMode, setLayerMode] = useState<MapLayerMode>("demand");
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedUnitId, setSelectedUnitId] = useState<string | null>(null);
@@ -98,6 +102,22 @@ export default function SimulationPage() {
   const [closureChoice, setClosureChoice] = useState<Record<string, { state: string; centerId: string }>>({});
   const [closingIds, setClosingIds] = useState<Record<string, boolean>>({});
   const [simNotice, setSimNotice] = useState<string | null>(null);
+
+  // Reloj vivo: el reloj del backend avanza al ritmo de la animación (ver liveClock.ts), así la
+  // llegada simulada refleja el recorrido real por calles y el tráfico.
+  const liveAdvance = useCallback(
+    async (minutes: number) => {
+      const res = await coreApi.advanceSimulationClock(minutes, true);
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      if (res.injected_requests > 0) {
+        queryClient.invalidateQueries({ queryKey: ["simulation-flow"] });
+        queryClient.invalidateQueries({ queryKey: ["requests"] });
+        setSimNotice(`Flujo: ${res.injected_requests} solicitud(es) nueva(s).`);
+      }
+    },
+    [queryClient]
+  );
+  useLiveSimClock({ running, speed, advance: liveAdvance });
   const [heldTransfers, setHeldTransfers] = useState<
     Array<{ serviceId: string; unitId: string; destinationCenter: string | null }>
   >([]);
@@ -156,15 +176,21 @@ export default function SimulationPage() {
     },
     onSuccess: (_res, serviceId) => {
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["simulation-evaluation"] });
       queryClient.invalidateQueries({ queryKey: ["requests"] });
       queryClient.invalidateQueries({ queryKey: ["request-detail", serviceId] });
     },
   });
 
   const advanceMutation = useMutation({
-    mutationFn: coreApi.advanceSimulationClock,
-    onSuccess: () => {
+    mutationFn: (minutes: number) => coreApi.advanceSimulationClock(minutes),
+    onSuccess: (res) => {
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["simulation-flow"] });
+      if (res.injected_requests > 0) {
+        queryClient.invalidateQueries({ queryKey: ["requests"] });
+        setSimNotice(`Flujo: ${res.injected_requests} solicitud(es) nueva(s).`);
+      }
       queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
     },
   });
@@ -415,6 +441,7 @@ export default function SimulationPage() {
     mutationFn: coreApi.recordDecision,
     onSuccess: () => {
       setActiveRec(null);
+      queryClient.invalidateQueries({ queryKey: ["simulation-evaluation"] });
       queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
       queryClient.invalidateQueries({ queryKey: ["requests"] });
     },
@@ -613,7 +640,8 @@ export default function SimulationPage() {
           </button>
           <button
             type="button"
-            onClick={() => setSpeed((s) => (s === 1 ? 3 : 1))}
+            onClick={() => setSpeed(nextSpeed)}
+            title="Velocidad de la simulación: el reloj y los móviles avanzan al mismo ritmo"
             className="rounded border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-cyan-300 hover:bg-slate-800"
           >
             {speed}x
@@ -1040,6 +1068,12 @@ export default function SimulationPage() {
                           {c.expected_response_min.toFixed(1)} min
                         </span>
                       </div>
+                      {c.ml_expected_min != null && (
+                        <div className="mt-0.5 flex items-center justify-end gap-1 text-[11px] text-amber-200/80">
+                          Modelo ML: {c.ml_expected_min.toFixed(1)} min
+                          <ProvenanceBadge type="PREDICHO" />
+                        </div>
+                      )}
                       <div className="mt-1 flex justify-between text-[11px] text-slate-400">
                         <span>
                           Dist: {(liveKm ?? 0).toFixed(2)} km · Score {c.score.toFixed(1)}
@@ -1073,6 +1107,15 @@ export default function SimulationPage() {
               </div>
             </div>
           )}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-12 gap-4">
+        <div className="col-span-12 lg:col-span-4">
+          <FlowPanel />
+        </div>
+        <div className="col-span-12 lg:col-span-8">
+          <EvaluationPanel />
         </div>
       </div>
 

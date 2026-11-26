@@ -146,6 +146,8 @@ class RecommendationCandidateOut(BaseModel):
     coverage_penalty: float = 0.0
     expected_response_min: float
     distance_km: float | None = None
+    # Predicción del modelo ML (PREDICHO); no ordena el Top 3, se muestra para evaluarla.
+    ml_expected_min: float | None = None
     estimated_travel_min: float | None = None
     estimated_cost: float | None = None
     recommended_role: str | None = None

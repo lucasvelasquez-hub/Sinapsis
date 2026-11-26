@@ -8,6 +8,8 @@ import type {
   DecisionOut,
   DivertUnitOut,
   EligibilityEvaluation,
+  FlowInfo,
+  FlowStatus,
   HealthResponse,
   KpisOverview,
   ReclassifyOut,
@@ -19,6 +21,7 @@ import type {
   ScenarioSummary,
   ScoringConfig,
   ServiceType,
+  SimulationEvaluation,
   SimulationState,
   UnitStatus,
   UrgencyLevel,
@@ -216,11 +219,28 @@ export const coreApi = {
       method: "POST",
     }),
 
-  advanceSimulationClock: (minutes: number) =>
+  /** `live`: tick del reloj vivo (sincronizado con la animación); no se audita uno a uno. */
+  advanceSimulationClock: (minutes: number, live = false) =>
     apiFetch<AdvanceClockOut>("/simulation/advance-clock", {
       method: "POST",
-      body: JSON.stringify({ minutes }),
+      body: JSON.stringify({ minutes, live }),
     }),
+
+  listSimulationFlows: () => apiFetch<FlowInfo[]>("/simulation/flows"),
+
+  getSimulationFlow: () => apiFetch<FlowStatus>("/simulation/flow"),
+
+  loadSimulationFlow: (name: string) =>
+    apiFetch<FlowStatus>("/simulation/flow/load", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  unloadSimulationFlow: () =>
+    apiFetch<FlowStatus>("/simulation/flow/unload", { method: "POST" }),
+
+  getSimulationEvaluation: (scope: "flow" | "all" = "flow") =>
+    apiFetch<SimulationEvaluation>(`/simulation/evaluation?scope=${scope}`),
 
   generateSimulationRequests: (count = 4) =>
     apiFetch<{ created: Array<{ service_id: string }> }>("/simulation/generate", {

@@ -116,6 +116,8 @@ export interface RecommendationCandidate {
   coverage_penalty?: number;
   expected_response_min: number;
   distance_km?: number | null;
+  /** Predicción del modelo ML (PREDICHO); no ordena el Top 3, se muestra para evaluarla. */
+  ml_expected_min?: number | null;
   estimated_travel_min?: number | null;
   estimated_cost?: number | null;
   recommended_role?: string | null;
@@ -471,4 +473,64 @@ export interface AdvanceClockOut {
   current_sim_datetime: string;
   day_type: string;
   traffic_factor: number;
+  /** Solicitudes del flujo mensual que entraron con este avance. */
+  injected_requests: number;
+}
+
+export interface FlowInfo {
+  name: string;
+  month: string;
+  total: number;
+}
+
+export interface FlowStatus {
+  active: boolean;
+  name: string | null;
+  month: string | null;
+  total: number;
+  injected: number;
+  remaining: number;
+  next_request_datetime: string | null;
+  last_request_datetime: string | null;
+  finished: boolean;
+}
+
+export interface SimulationEvaluationRow {
+  service_id: string;
+  request_datetime: string;
+  urgency_level: string;
+  zone_id: string;
+  recommended_unit_id: string | null;
+  assigned_unit_id: string | null;
+  /** null: el móvil asignado no estaba en el Top 3. */
+  assigned_rank: number | null;
+  followed_top1: boolean;
+  /** Tiempo esperado de la recomendación (el que ordena el Top 3). */
+  predicted_min: number | null;
+  /** Origen de predicted_min, p. ej. MATRIX_TRAFFIC_ESTIMATE. */
+  estimation_type: string | null;
+  /** PREDICHO por el modelo ML para el móvil asignado. */
+  ml_predicted_min: number | null;
+  /** SIMULADO: llegada − solicitud con el reloj de simulación. */
+  simulated_min: number | null;
+  error_min: number | null;
+  ml_error_min: number | null;
+}
+
+export interface SimulationEvaluation {
+  scope: "flow" | "all";
+  summary: {
+    requests: number;
+    decided: number;
+    arrived: number;
+    followed_top1_rate: number | null;
+    mae_min: number | null;
+    /** > 0: la estimación subestima el tiempo. */
+    bias_min: number | null;
+    within_5_min_rate: number | null;
+    ml_mae_min: number | null;
+    ml_bias_min: number | null;
+    ml_within_5_min_rate: number | null;
+  };
+  rows: SimulationEvaluationRow[];
 }

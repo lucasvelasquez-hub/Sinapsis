@@ -64,6 +64,8 @@ class RecommendationCandidate(Base):
     )
     expected_response_min: Mapped[float] = mapped_column(Float, nullable=False)
     distance_km: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Predicción del modelo ML (PREDICHO), solo para evaluación: no ordena el Top 3.
+    ml_expected_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     estimated_travel_min: Mapped[float | None] = mapped_column(Float, nullable=True)
     estimated_cost: Mapped[float | None] = mapped_column(Float, nullable=True)
     recommended_role: Mapped[str | None] = mapped_column(String(40), nullable=True)
