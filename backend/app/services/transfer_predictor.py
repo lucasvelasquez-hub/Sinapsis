@@ -12,8 +12,16 @@ from app.domain.assignment_policy import is_transfer_likely
 
 ARTIFACT_PATH = Path(__file__).resolve().parent.parent / "ml" / "transfer_artifact.pkl"
 
-CAT_COLS = ["urgency_level", "manchester_scale", "service_type", "discriminator", "channel", "zone_id","triage_combo"]
-NUM_COLS = ["hour", "day_of_week", "is_weekend"]
+CAT_COLS = [
+    "urgency_level",
+    "manchester_scale",
+    "service_type",
+    "discriminator",
+    "triage_combo",
+    "channel",
+    "zone_id",
+]
+NUM_COLS = ["hour", "is_weekend"]
 
 
 @lru_cache(maxsize=1)
@@ -33,14 +41,9 @@ def predict_transfer_likelihood(
     channel: str | None = None,
     zone_id: str | None = None,
 ) -> tuple[bool, float | None, str]:
-    """Retorna (transfer_likely, probability, source).
-
-    Si no existe artefacto entrenado, usa la regla determinística de assignment_policy.
-    """
+    """Retorna (transfer_likely, probability, source)."""
     artifact = _load_transfer_artifact()
     if artifact is None:
-        #fallback = is_transfer_likely(service_type, discriminator)
-        #return fallback, None, "RULE_FALLBACK"
         return is_transfer_likely(service_type, discriminator), None, "RULE_FALLBACK"
 
     urg = str(urgency_level or "MISSING")
@@ -50,24 +53,23 @@ def predict_transfer_likelihood(
     row = pd.DataFrame(
         [
             {
-                "urgency_level": str(urgency_level or "MISSING"),
+                "urgency_level": urg,
                 "manchester_scale": str(manchester_scale or "MISSING"),
-                "service_type": str(service_type or "MISSING"),
-                "discriminator": str(discriminator or "MISSING"),
+                "service_type": srv,
+                "discriminator": disc,
+                "triage_combo": f"{urg}|{srv}|{disc}",
                 "channel": str(channel or "MISSING"),
                 "zone_id": str(zone_id or "MISSING"),
                 "hour": request_datetime.hour,
-                "day_of_week": request_datetime.weekday(),
                 "is_weekend": int(request_datetime.weekday() >= 5),
             }
         ]
     )[CAT_COLS + NUM_COLS]
 
     prob = float(artifact["model"].predict_proba(row)[0, 1])
-    #threshold = float(artifact.get("threshold", 0.5))
     threshold = float(
-        artifact.get("d06_threshold_07", 0.16)
+        artifact.get("d06_threshold_07", 0.1717)
         if urg == "07"
-        else artifact.get("threshold", 0.35)
+        else artifact.get("threshold", 0.25)
     )
     return prob >= threshold, round(prob, 4), "ML_TRANSFER_MODEL"
