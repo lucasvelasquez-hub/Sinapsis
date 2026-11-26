@@ -19,7 +19,7 @@ from app.domain.assignment_policy import (
     URGENCY_RANK,
     VITAL,
     PolicyUnit,
-    is_transfer_likely,
+    # is_transfer_likely,
     r02_wait_warning,
     r06_factor,
     rank_units,
@@ -56,6 +56,7 @@ from app.services.scoring_service import (
     normalize_workload_0_100,
 )
 from app.services.simulation_service import get_or_create_simulation_session
+from app.services.transfer_predictor import predict_transfer_likelihood
 
 TOP_N = 3
 ASSUMED_ON_SCENE_MIN = 35.0
@@ -403,7 +404,19 @@ def score_candidates(
     )
     best_vmd_time = effective_times[best_vmd_idx] if best_vmd_idx is not None else float("inf")
     best_vmd_id = units[best_vmd_idx].unit_id if best_vmd_idx is not None else None
-    d06_transfer = service.urgency_level == "07" and _d06_possible_transfer(service.service_type)
+
+    # d06_transfer = service.urgency_level == "07" and _d06_possible_transfer(service.service_type)
+    ml_transfer, transfer_prob, _transfer_src = predict_transfer_likelihood(
+        request_datetime=service.request_datetime,
+        urgency_level=service.urgency_level,
+        service_type=service.service_type,
+        discriminator=service.discriminator,
+        manchester_scale=service.manchester_scale,
+        channel=service.channel,
+        zone_id=service.zone_id,
+    )
+    d06_transfer = service.urgency_level == "07" and ml_transfer
+
     scored: list[ScoredCandidate] = []
     for idx, (unit, (_, est_type), t_pen, l_pen, c_pen, k_pen) in enumerate(
         zip(units, predictions, norm_time, norm_workload, norm_cost, norm_coverage, strict=True)
@@ -457,7 +470,11 @@ def score_candidates(
                 )
 
         if d06_transfer and unit.unit_type == "TAB":
-            factors.append("Regla D06: motivo 07 con posible traslado; TAB considerada adecuada")
+            # factors.append("Regla D06: motivo 07 con posible traslado; TAB considerada adecuada")
+            prob_txt = f" (probabilidad ML {transfer_prob:.0%})" if transfer_prob is not None else ""
+            factors.append(
+                f"Regla D06: 07 con posible traslado{prob_txt}; TAB priorizada para evitar doble despacho"
+            )
 
         if vital_mode:
             factors.append(
@@ -520,6 +537,7 @@ def score_candidates(
         risky_coverage_units,
         reserved_ids=_reserved_unit_ids(db, service),
         r02_warning=_pending_wait_warning(db, service),
+        transfer_likely=ml_transfer,
     )
 
 
@@ -657,6 +675,7 @@ def _order_by_policy(
     risky_coverage_units: set[str],
     reserved_ids: set[str] | None = None,
     r02_warning: str | None = None,
+    transfer_likely: bool | None = None,
 ) -> list[ScoredCandidate]:
     """Orden de rank_units. La VMD marcada R04 queda delante hasta que la política emita el rol."""
     if not scored:
@@ -675,13 +694,27 @@ def _order_by_policy(
         )
         for c in scored
     ]
+    resolved_transfer = (
+        transfer_likely
+        if transfer_likely is not None
+        else predict_transfer_likelihood(
+            request_datetime=service.request_datetime,
+            urgency_level=service.urgency_level,
+            service_type=service.service_type,
+            discriminator=service.discriminator,
+            manchester_scale=service.manchester_scale,
+            channel=service.channel,
+            zone_id=service.zone_id,
+        )[0]
+    )
     ranked = reserve_for_higher(
         service.urgency_level,
         rank_units(
             service.urgency_level,
             target_min,
             policy_units,
-            transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+            # transfer_likely=is_transfer_likely(service.service_type, service.discriminator),
+            transfer_likely=resolved_transfer,
             support_vmd=service.urgency_level == "01",
         ),
         reserved_ids or set(),
@@ -877,8 +910,8 @@ def _to_out(
             paired_unit_id=c.paired_unit_id,
             estimation_type=c.estimation_type,
             workload_4h=c.workload_4h,
-            workload_8h=c.workload_8h,
-            workload_12h=c.workload_12h,
+            workload_8h=c.unit.workload_8h,
+            workload_12h=c.unit.workload_12h,
             compatibility_rank=c.compatibility_rank,
             simulated_available=c.simulated_available,
             factors=c.factors_json or [],
