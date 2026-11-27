@@ -248,11 +248,31 @@ def _observed_kpis(db: Session, targets: dict[str, int]) -> dict[str, str]:
 def _simulated_kpis(
     db: Session, targets: dict[str, int]
 ) -> tuple[dict[str, str], dict[str, Literal["SIMULADO", "OBSERVADO"]]]:
+    from app.services.recommendation_service import load_static_catalogs
     from app.services.scenario_replay import replay_scenario
+    from app.services.scoring_service import get_scoring_config
+
+    catalogs = load_static_catalogs(db)
+    units_db = {unit.unit_id: unit for unit in db.execute(select(RawUnit)).scalars().all()}
+    rules_by_urg: dict[str, dict[str, int]] = {}
+    for rule in db.execute(
+        select(RawServiceRule).where(RawServiceRule.eligible.is_(True))
+    ).scalars():
+        rules_by_urg.setdefault(rule.urgency_level, {})[rule.unit_type] = rule.compatibility_rank
+    config = get_scoring_config(db)
 
     all_results: list[ScenarioRequestEvalOut] = []
     for sc in list_scenarios():
-        all_results.extend(replay_scenario(db, sc.id_escenario).results)
+        all_results.extend(
+            replay_scenario(
+                db,
+                sc.id_escenario,
+                catalogs=catalogs,
+                units_db=units_db,
+                rules_by_urg=rules_by_urg,
+                config=config,
+            ).results
+        )
 
     sim_by_urg: dict[str, list[float]] = {}
     sug_km: list[float] = []
@@ -408,13 +428,22 @@ def _pct_opt(hits: int, total: int) -> float:
 
 
 def evaluate_all_scenarios(db: Session) -> AllScenariosEvaluationOut:
+    from app.services.recommendation_service import load_static_catalogs
     from app.services.scenario_replay import replay_scenario
+    from app.services.scoring_service import get_scoring_config
 
+    catalogs = load_static_catalogs(db)
+    units_db = {unit.unit_id: unit for unit in db.execute(select(RawUnit)).scalars().all()}
     rules_by_urg: dict[str, set[str]] = {}
+    rules_ranks_by_urg: dict[str, dict[str, int]] = {}
     for rule in db.execute(
         select(RawServiceRule).where(RawServiceRule.eligible.is_(True))
     ).scalars():
         rules_by_urg.setdefault(rule.urgency_level, set()).add(rule.unit_type)
+        rules_ranks_by_urg.setdefault(rule.urgency_level, {})[rule.unit_type] = (
+            rule.compatibility_rank
+        )
+    config = get_scoring_config(db)
 
     items: list[ScenarioBatchItemOut] = []
     discrepancy_counts: Counter[str] = Counter(
@@ -454,7 +483,14 @@ def evaluate_all_scenarios(db: Session) -> AllScenariosEvaluationOut:
     d06_tab_07 = 0
 
     for sc in list_scenarios():
-        ev = replay_scenario(db, sc.id_escenario)
+        ev = replay_scenario(
+            db,
+            sc.id_escenario,
+            catalogs=catalogs,
+            units_db=units_db,
+            rules_by_urg=rules_ranks_by_urg,
+            config=config,
+        )
         sc_cost_core: list[float] = []
         sc_cost_ref: list[float] = []
         sc_dist_core: list[float] = []

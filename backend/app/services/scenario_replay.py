@@ -11,14 +11,18 @@ from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError
 from app.domain.assignment_policy import r06_factor
-from app.models.raw import RawResponseTarget, RawService, RawServiceRule, RawUnit
+from app.models.raw import RawService, RawServiceRule, RawUnit
 from app.schemas.benchmarks import (
     ScenarioEvaluationOut,
     ScenarioRequestEvalOut,
 )
 from app.schemas.dispatch import EligibilityEvaluation, ExclusionReason, UnitStatusOut
 from app.services.benchmarks_service import _load_scenarios_workbook, list_scenarios
-from app.services.recommendation_service import score_candidates
+from app.services.recommendation_service import (
+    StaticCatalogs,
+    load_static_catalogs,
+    score_candidates,
+)
 from app.services.scoring_service import get_scoring_config
 
 FREE_STATES = {"DISPONIBLE", "RETORNANDO"}
@@ -90,7 +94,15 @@ def _mean_or_none(values: list[float]) -> float | None:
     return round(sum(values) / len(values), 2)
 
 
-def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
+def replay_scenario(
+    db: Session,
+    scenario_id: str,
+    *,
+    catalogs: StaticCatalogs | None = None,
+    units_db: dict[str, RawUnit] | None = None,
+    rules_by_urg: dict[str, dict[str, int]] | None = None,
+    config: Any | None = None,
+) -> ScenarioEvaluationOut:
     scenarios = {item.id_escenario: item for item in list_scenarios()}
     scenario = scenarios.get(scenario_id)
     if scenario is None:
@@ -123,16 +135,22 @@ def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
         for row in data["decision_despachador"]
         if row["id_escenario"] == scenario_id and int(row.get("orden_movil") or 1) == 2
     }
+    eff_catalogs = catalogs if catalogs is not None else load_static_catalogs(db)
     targets = dict(DEFAULT_TARGETS)
-    for tgt_row in db.execute(select(RawResponseTarget)).scalars():
-        targets[tgt_row.urgency_level] = int(tgt_row.target_response_min)
-    units_db = {unit.unit_id: unit for unit in db.execute(select(RawUnit)).scalars().all()}
-    rules_by_urg: dict[str, dict[str, int]] = {}
-    for rule in db.execute(
-        select(RawServiceRule).where(RawServiceRule.eligible.is_(True))
-    ).scalars():
-        rules_by_urg.setdefault(rule.urgency_level, {})[rule.unit_type] = rule.compatibility_rank
-    config = get_scoring_config(db)
+    for k, v in eff_catalogs.targets_map.items():
+        targets[k] = int(v)
+    if units_db is None:
+        units_db = {unit.unit_id: unit for unit in db.execute(select(RawUnit)).scalars().all()}
+    if rules_by_urg is None:
+        rules_by_urg = {}
+        for rule in db.execute(
+            select(RawServiceRule).where(RawServiceRule.eligible.is_(True))
+        ).scalars():
+            rules_by_urg.setdefault(rule.urgency_level, {})[rule.unit_type] = (
+                rule.compatibility_rank
+            )
+    if config is None:
+        config = get_scoring_config(db)
     start_dt = datetime.strptime(scenario.fecha_hora_inicio, "%Y-%m-%d %H:%M")
 
     timeline: list[tuple[int, int, str, Any]] = []
@@ -169,6 +187,7 @@ def replay_scenario(db: Session, scenario_id: str) -> ScenarioEvaluationOut:
             ref_decisions.get(req_id, {}),
             ref_paired_decisions.get(req_id, {}),
             targets,
+            eff_catalogs,
         )
         remember(eval_out)
         if eval_out.recommended_unit_id and eval_out.recommended_unit_id in fleet:
@@ -341,6 +360,7 @@ def _rank_request(
     ref: dict[str, Any],
     ref_paired: dict[str, Any],
     targets: dict[str, int],
+    catalogs: StaticCatalogs,
 ) -> ScenarioRequestEvalOut:
     req_id = str(req["id_solicitud"])
     req_dt = start_dt + timedelta(minutes=minute)
@@ -421,6 +441,7 @@ def _rank_request(
         config.weight_cost,
         config.weight_coverage,
         use_live_queue=False,
+        catalogs=catalogs,
     )
     top = ranked[0] if ranked else None
     ref_uid = ref.get("id_movil")

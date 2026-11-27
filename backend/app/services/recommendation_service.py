@@ -28,6 +28,7 @@ from app.domain.assignment_policy import (
 from app.domain.enums import RecommendationStatus, ServiceStatus, UnitRole
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
 from app.domain.temporal import shift_covers_hour, utcnow
+from app.ml.features import DEMAND_COLUMNS
 from app.models.decision import Recommendation, RecommendationCandidate
 from app.models.raw import (
     RawBase,
@@ -208,33 +209,86 @@ def _travel_lookup(
     return {r.origin_zone_id: (float(r.distance_km), float(r.valley_time_min)) for r in rows}
 
 
+@dataclass(frozen=True)
+class StaticCatalogs:
+    """Catálogos geográficos y de reglas precargados en memoria para evitar N+1 en replay."""
+
+    bases_map: dict[str, RawBase]
+    zones_map: dict[str, RawZone]
+    alta_zones: set[str]
+    targets_map: dict[str, float]
+    traffic_map: dict[tuple[str, int], float]
+    travel_matrix: dict[tuple[str, str], tuple[float, float]]
+
+
+def load_static_catalogs(db: Session) -> StaticCatalogs:
+    bases_map = {b.base_id: b for b in db.execute(select(RawBase)).scalars().all()}
+    zones_map = {z.zone_id: z for z in db.execute(select(RawZone)).scalars().all()}
+    alta_zones = {z.zone_id for z in zones_map.values() if z.relative_demand == "ALTA"}
+    targets_map = {
+        t.urgency_level: float(t.target_response_min)
+        for t in db.execute(select(RawResponseTarget)).scalars().all()
+    }
+    traffic_map: dict[tuple[str, int], float] = {}
+    for tf in db.execute(select(RawTrafficFactor)).scalars().all():
+        for hr in range(int(tf.hour_start), int(tf.hour_end) + 1):
+            traffic_map[(tf.day_type, hr)] = float(tf.factor)
+    travel_matrix = {
+        (r.origin_zone_id, r.destination_zone_id): (float(r.distance_km), float(r.valley_time_min))
+        for r in db.execute(select(RawZoneTravelTime)).scalars().all()
+    }
+    return StaticCatalogs(
+        bases_map=bases_map,
+        zones_map=zones_map,
+        alta_zones=alta_zones,
+        targets_map=targets_map,
+        traffic_map=traffic_map,
+        travel_matrix=travel_matrix,
+    )
+
+
 def _high_demand_zones_coverage_risk(
     db: Session,
     eligible_units: list[UnitStatusOut],
     traffic: float,
+    catalogs: StaticCatalogs | None = None,
 ) -> set[str]:
     """Zones with relative_demand='ALTA' losing their only <=20m ambulance if dispatched."""
-    alta_zones = set(
-        db.execute(select(RawZone.zone_id).where(RawZone.relative_demand == "ALTA")).scalars()
+    alta_zones = (
+        catalogs.alta_zones
+        if catalogs is not None
+        else set(
+            db.execute(select(RawZone.zone_id).where(RawZone.relative_demand == "ALTA")).scalars()
+        )
     )
     ambulances = [u for u in eligible_units if u.unit_type in AMBULANCE_TYPES and u.current_zone_id]
     if not ambulances or not alta_zones:
         return set()
 
-    amb_zones = {u.current_zone_id for u in ambulances if u.current_zone_id}
-    travel_rows = db.execute(
-        select(RawZoneTravelTime).where(
-            RawZoneTravelTime.origin_zone_id.in_(amb_zones),
-            RawZoneTravelTime.destination_zone_id.in_(alta_zones),
-        )
-    ).scalars()
     cover_map: dict[str, set[str]] = {z: set() for z in alta_zones}
-    zone_by_amb = {u.unit_id: u.current_zone_id for u in ambulances}
-    for tr in travel_rows:
-        if tr.valley_time_min * traffic <= COVERAGE_MAX_AMBULANCE_MIN:
-            for uid, uz in zone_by_amb.items():
-                if uz == tr.origin_zone_id:
-                    cover_map[tr.destination_zone_id].add(uid)
+    if catalogs is not None:
+        for u in ambulances:
+            uz = u.current_zone_id
+            if not uz:
+                continue
+            for az in alta_zones:
+                cell = catalogs.travel_matrix.get((uz, az))
+                if cell is not None and cell[1] * traffic <= COVERAGE_MAX_AMBULANCE_MIN:
+                    cover_map[az].add(u.unit_id)
+    else:
+        amb_zones = {u.current_zone_id for u in ambulances if u.current_zone_id}
+        travel_rows = db.execute(
+            select(RawZoneTravelTime).where(
+                RawZoneTravelTime.origin_zone_id.in_(amb_zones),
+                RawZoneTravelTime.destination_zone_id.in_(alta_zones),
+            )
+        ).scalars()
+        zone_by_amb = {u.unit_id: u.current_zone_id for u in ambulances}
+        for tr in travel_rows:
+            if tr.valley_time_min * traffic <= COVERAGE_MAX_AMBULANCE_MIN:
+                for uid, uz in zone_by_amb.items():
+                    if uz == tr.origin_zone_id:
+                        cover_map[tr.destination_zone_id].add(uid)
 
     risky_unit_ids: set[str] = set()
     for _z, covering_uids in cover_map.items():
@@ -256,16 +310,45 @@ def score_candidates(
     reserved_ids: set[str] | None = None,
     r02_warning: str | None = None,
     use_live_queue: bool = True,
+    catalogs: StaticCatalogs | None = None,
 ) -> list[ScoredCandidate]:
     """J(j) = w_T·T + w_L·L + w_C·C + w_K·K over eligible units, sorted best first."""
     units = eligibility.eligible_units
     if not units:
         return []
 
-    traffic = _traffic_factor(db, service.request_datetime)
     origin_zones = {u.current_zone_id for u in units if u.current_zone_id}
-    travel_map = _travel_lookup(db, origin_zones, service.zone_id)
-    dest_zone = db.get(RawZone, service.zone_id)
+    if catalogs is not None:
+        traffic = catalogs.traffic_map.get(
+            (_day_type(service.request_datetime), service.request_datetime.hour), 1.0
+        )
+        travel_map = {
+            oz: catalogs.travel_matrix[(oz, service.zone_id)]
+            for oz in origin_zones
+            if (oz, service.zone_id) in catalogs.travel_matrix
+        }
+        dest_zone = catalogs.zones_map.get(service.zone_id)
+        bases_map = catalogs.bases_map
+        zones_map = catalogs.zones_map
+        target_min = catalogs.targets_map.get(service.urgency_level, 20.0)
+    else:
+        traffic = _traffic_factor(db, service.request_datetime)
+        travel_map = _travel_lookup(db, origin_zones, service.zone_id)
+        dest_zone = db.get(RawZone, service.zone_id)
+        bases_map = {b.base_id: b for b in db.execute(select(RawBase)).scalars().all()}
+        zones_map = (
+            {
+                z.zone_id: z
+                for z in db.execute(select(RawZone).where(RawZone.zone_id.in_(origin_zones)))
+                .scalars()
+                .all()
+            }
+            if origin_zones
+            else {}
+        )
+        target_row = db.get(RawResponseTarget, service.urgency_level)
+        target_min = float(target_row.target_response_min) if target_row else 20.0
+
     rel_demand = dest_zone.relative_demand if dest_zone else "MEDIA"
     patient_lat = (
         service.lat_approx
@@ -277,24 +360,11 @@ def score_candidates(
         if service.lon_approx is not None
         else (dest_zone.lon_centroid if dest_zone else None)
     )
-    bases_map = {b.base_id: b for b in db.execute(select(RawBase)).scalars().all()}
-    zones_map = (
-        {
-            z.zone_id: z
-            for z in db.execute(select(RawZone).where(RawZone.zone_id.in_(origin_zones)))
-            .scalars()
-            .all()
-        }
-        if origin_zones
-        else {}
-    )
-    risky_coverage_units = _high_demand_zones_coverage_risk(db, units, traffic)
-    target_row = db.get(RawResponseTarget, service.urgency_level)
-    target_min = float(target_row.target_response_min) if target_row else 20.0
+    risky_coverage_units = _high_demand_zones_coverage_risk(db, units, traffic, catalogs=catalogs)
 
     unit_distances: list[float | None] = []
     ctx_by_unit = {}
-    demand = request_demand(db, service)
+    demand = request_demand(db, service) if use_live_queue else {c: 0 for c in DEMAND_COLUMNS}
     for u in units:
         tr = travel_map.get(u.current_zone_id or "")
         base = bases_map.get(u.base_id)
