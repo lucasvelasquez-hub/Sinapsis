@@ -115,7 +115,8 @@ zonas `Z-*`, turnos). Scripts en `scripts/`: `validate_dataset.py` (validación 
 `app/services/ingestion_service.py`: catálogos geográficos, reglas y objetivos se reemplazan, unidades y
 servicios se actualizan por clave, lo que desaparece del origen se borra salvo que lo referencien
 recomendaciones o decisiones, en cuyo caso el servicio se conserva tal cual y la unidad queda inactiva;
-las solicitudes simuladas no se tocan). Los vocabularios los sirve `GET /api/v1/catalog`; el front no
+las solicitudes simuladas no se tocan) y `generate_monthly_flow.py` (flujo mensual SIMULADO en
+`data/processed/flujo_AAAA_MM.json`, que `/simulation` reproduce con el reloj vivo). Los vocabularios los sirve `GET /api/v1/catalog`; el front no
 mantiene listas propias.
 
 ## Supabase
@@ -158,5 +159,7 @@ mantiene listas propias.
 | Estado / fases | `docs/IMPLEMENTATION_STATUS.md` |
 | Arquitectura | `docs/architecture/overview.md` |
 | Calidad de datos | `docs/decisions/data_quality_report.md` |
+| Modelo ML de tiempo | `docs/decisions/ml_model_selection.md` |
+| Flujo simulado y evaluación | `docs/decisions/simulation_flow_evaluation.md` |
 | Reglas backend / Supabase / ML / frontend | `.claude/rules/*.md` |
 | Lecciones | `tasks/lessons.md` |

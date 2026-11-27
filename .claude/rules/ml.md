@@ -20,6 +20,12 @@ paths:
   Entrenamiento: historial completo de `raw.services`. Serving: `prediction_service.request_demand`
   (últimas 12 h). Ambos estrictamente anteriores a la solicitud. Un artefacto sin estas features
   se rechaza al arrancar (`load_artifact`).
+- El Top 3 se ordena con la matriz O-D × tráfico cuando existe; el modelo es respaldo. Su predicción se
+  guarda en `recommendation_candidates.ml_expected_min` solo para evaluarla (panel de `/simulation`):
+  no usarla para reordenar sin una decisión explícita. Mide tiempo de respuesta (incluye cola), no
+  desplazamiento.
+- Flujos simulados: `scripts/generate_monthly_flow.py` escribe en `data/processed/`. Ver
+  `docs/decisions/simulation_flow_evaluation.md`.
 - Semillas fijas (`random_state=42`) en todo lo estocástico.
 - `app/ml/model_artifact.pkl` se regenera con `train_models.py`; no se edita a mano. Si cambian las
   features, re-entrenar y actualizar las métricas en `docs/IMPLEMENTATION_STATUS.md`.

@@ -8,7 +8,11 @@ Las reglas operativas viven en `.claude/rules/ml.md`; el estado de fases en `IMP
 ## Contexto
 
 El modelo estima `response_time_min` para cada par (solicitud, unidad). Ese valor alimenta el score
-de tiempo (`T` en `J`) y el Top 3 de recomendaciones. El modelo anterior era un Ridge lineal sobre
+de tiempo (`T` en `J`) y el Top 3 de recomendaciones **solo cuando no hay matriz O-D ni distancia**:
+en la práctica el Top 3 se ordena casi siempre con `MATRIX_TRAFFIC_ESTIMATE`. Desde la revisión
+`e3c8a7b5d1f2` la predicción se guarda aparte (`ml_expected_min`) para evaluarla en la simulación sin
+cambiar el orden (ver `simulation_flow_evaluation.md`). Ojo: el modelo aprende el tiempo de respuesta
+histórico, que incluye la espera en cola; la matriz, solo el desplazamiento. El modelo anterior era un Ridge lineal sobre
 features de contexto; apenas superaba al baseline contextual (mediana por urgencia, tipo y zona).
 
 ## Opciones medidas
@@ -119,3 +123,4 @@ commitear `model_artifact.pkl` junto con cualquier cambio de features. Reentrena
 1. Barrido de hiperparámetros de HGB sobre validación, con tiempo de cómputo acotado.
 2. Feature de carga por unidad (tiempo desde su última asignación) y de estado de la flota por base.
 3. Cuantiles (p50/p90) para mostrar un rango `PREDICHO`, en vez de un único valor.
+4. Un modelo de desplazamiento (asignación → llegada), comparable con la matriz O-D.
