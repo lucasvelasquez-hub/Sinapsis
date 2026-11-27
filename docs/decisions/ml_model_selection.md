@@ -59,6 +59,22 @@ Entrenado contra Supabase (`analytics.prediction_results`):
 | Random Forest | 12.79 | 11.98 | 24.19 |
 | **HGB `absolute_error`** | **12.06** | **10.97** | 21.98 |
 
+## Actualización 2026-11-27 — Cambio de target a desplazamiento puro
+
+En la evaluación del flujo simulado (`simulation_flow_evaluation.md`) se comprobó que el modelo sobre
+`response_time_min` incluía la espera en cola histórica (~47 min en urgencia `06`, ~32 min en `03`),
+generando un sesgo de ~40 min al compararlo contra la matriz O-D × tráfico y la llegada simulada (que
+miden desplazamiento). Se cambió el target de `train_models.py` a **desplazamiento puro**
+(`arrival_datetime - assignment_datetime`, 9.654 servicios históricos reales con `is_synthetic=FALSE`),
+conservando el mismo split cronológico 70/15/15 y las mismas features sin fuga temporal:
+
+| Modelo (desplazamiento puro) | MAE val | MAE test | Mediana AE test | p90 test |
+|---|---:|---:|---:|---:|
+| Baseline contextual | 15.10 | 12.95 | 6.57 | 29.71 |
+| Ridge | 7.41 | 6.10 | 3.64 | 9.57 |
+| Random Forest | 7.79 | 5.99 | 2.60 | 11.71 |
+| **HGB `absolute_error` (seleccionado)** | **6.05** | **4.60** | **1.88** | **7.07** |
+
 ## Demanda previa (features nuevas)
 
 Cuatro features de carga que se conocen en el instante de la solicitud:

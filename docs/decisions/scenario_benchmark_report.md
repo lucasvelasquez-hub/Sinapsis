@@ -1,6 +1,6 @@
 # Reporte de Benchmark — 14 Escenarios de Referencia EMI
 
-Generado: `2026-11-25T14:59:37` · Procedencia replay: `SIMULADO`
+Generado: `2026-11-27T09:41:23` · Procedencia replay: `SIMULADO`
 
 ## Resumen Ejecutivo
 

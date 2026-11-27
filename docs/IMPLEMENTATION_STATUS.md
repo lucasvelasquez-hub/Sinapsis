@@ -13,7 +13,7 @@
 ## Funcionalidades Terminadas
 - **Persistencia PostgreSQL (4 schemas)**: `raw`, `analytics`, `decision`, `core` con migraciones Alembic hasta `e3c8a7b5d1f2`. Auditoría solo-inserción para el rol `core_app`.
 - **Geografía y tiempos**: Matriz origen-destino (`raw.zone_travel_times`) × factores de tráfico (`raw.traffic_factors`) + distancia Haversine (`domain/geo.py`) con posiciones simuladas/en vivo. Costo operativo y cobertura geográfica de zonas `ALTA` activos en el motor.
-- **ML & Predicción**: Evaluación cronológica (70/15/15) sobre datos EMI en Supabase. Artefacto v3: `hist_gradient_boosting_mae` con demanda previa por zona y sistema; MAE test `10.9695`, p90 `21.9777` (anterior `linear_regression_ridge` sin demanda: MAE test `11.9183`).
+- **ML & Predicción**: Evaluación cronológica (70/15/15) sobre desplazamiento puro (`arrival_datetime - assignment_datetime`, 9.654 históricos reales sin sintéticos). Artefacto v3: `hist_gradient_boosting_mae` con demanda previa por zona y sistema; MAE val `6.0494`, MAE test `4.6015`, mediana AE test `1.8816`, p90 test `7.0721` (antes sobre tiempo total incl. cola: MAE test `10.9695`). Así matriz O-D × tráfico y modelo ML predicen la misma magnitud (desplazamiento).
 - **Motores de Decisión**:
   - `eligibility_service.py`: $A(i,j) = E(i,j) \times S(j,t) \times D(j,t)$ + excepción `R06` para móviles `EN_RUTA` a `03`/`06` sin llegada.
   - `domain/assignment_policy.py` & `scoring_service.py`: Ordenamiento jerárquico EMI (D01–D08, R01–R04: banda `3 min`, metas `12/20 min`, cobertura `ALTA ≤20 min`, apoyo `VMD` si ambulancia `>15 min` D07, aviso `R02` a `2 min`) y score compuesto explicable (`0.50/0.20/0.15/0.15` en `core.scoring_config`) sin reordenar por encima de la política.

@@ -65,7 +65,8 @@ def train_and_evaluate() -> dict:
             s.service_type,
             s.zone_id,
             COALESCE(z.relative_demand, 'MEDIA') AS relative_demand,
-            s.response_time_min,
+            EXTRACT(EPOCH FROM (s.arrival_datetime - s.assignment_datetime)) / 60.0
+                AS response_time_min,
             u.unit_type,
             u.base_id,
             u.shift,
@@ -89,13 +90,19 @@ def train_and_evaluate() -> dict:
                 END
             )
             AND EXTRACT(HOUR FROM s.request_datetime)::int BETWEEN tf.hour_start AND tf.hour_end
-        WHERE s.response_time_min IS NOT NULL
+        WHERE s.is_synthetic IS FALSE
+          AND s.assignment_datetime IS NOT NULL
+          AND s.arrival_datetime IS NOT NULL
+          AND s.arrival_datetime >= s.assignment_datetime
         ORDER BY s.request_datetime ASC, s.service_id ASC
     """
     raw = pd.read_sql(query, engine)
-    # Demanda previa sobre TODO el historial (también solicitudes sin tiempo de respuesta),
+    # Demanda previa sobre TODO el historial observado (también sin tiempo de llegada),
     # con la misma función que el serving (request_demand): sin desvío train/serve.
-    history = pd.read_sql("SELECT zone_id, request_datetime FROM raw.services", engine)
+    history = pd.read_sql(
+        "SELECT zone_id, request_datetime FROM raw.services WHERE is_synthetic IS FALSE",
+        engine,
+    )
     history["request_datetime"] = pd.to_datetime(history["request_datetime"])
     system_ts = sorted(history["request_datetime"].tolist())
     zone_ts = {
