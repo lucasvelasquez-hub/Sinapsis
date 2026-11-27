@@ -26,6 +26,22 @@ export interface LivePos {
 const DARK_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json";
 const LIGHT_VECTOR_STYLE = "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
+function offlineStyle(lightMode: boolean): maplibregl.StyleSpecification {
+  return {
+    version: 8,
+    sources: {},
+    layers: [
+      {
+        id: "offline-background",
+        type: "background",
+        paint: {
+          "background-color": lightMode ? "#d1e1ff" : "#050d18",
+        },
+      },
+    ],
+  };
+}
+
 const UNIT_COLOR: Record<string, string> = {
   TAM: "#fb7185",
   TAB: "#fb923c",
@@ -535,12 +551,30 @@ export default function AburraMap({
 
     // Switch MapLibre base style live when High-Contrast (light) vs Dark Ops toggles
     let activeLight = isLight;
+    let offlineFallbackActive = false;
+
+    // Fallback offline silencioso si CARTO no responde (p. ej. red restringida en sala de demo)
+    map.on("error", () => {
+      if (loadedRef.current || offlineFallbackActive) return;
+      offlineFallbackActive = true;
+      map.setStyle(offlineStyle(activeLight));
+      map.once("style.load", () => {
+        attachCustomLayers(activeLight);
+      });
+    });
+
     const contrastObserver = new MutationObserver(() => {
       const nextLight = document.documentElement.dataset.contrast === "high";
       if (nextLight === activeLight) return;
       activeLight = nextLight;
       loadedRef.current = false;
-      map.setStyle(nextLight ? LIGHT_VECTOR_STYLE : DARK_VECTOR_STYLE);
+      map.setStyle(
+        offlineFallbackActive
+          ? offlineStyle(nextLight)
+          : nextLight
+          ? LIGHT_VECTOR_STYLE
+          : DARK_VECTOR_STYLE
+      );
       map.once("style.load", () => {
         attachCustomLayers(nextLight);
       });
