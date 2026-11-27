@@ -547,25 +547,36 @@ export default function BenchmarksPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800/70">
-              {(kpisQuery.data?.kpis ?? []).map((k) => (
-                <tr key={k.id_kpi}>
-                  <td className="py-2 pr-3 font-mono text-cyan-300">{k.id_kpi}</td>
-                  <td className="py-2 pr-3 text-slate-100">{k.nombre}</td>
-                  <td className="py-2 pr-3 text-emerald-300">{k.meta_referencia}</td>
-                  <td className="py-2 pr-3 text-slate-400">{k.linea_base_ficticia}</td>
-                  <td className="py-2 pr-3 font-mono text-white">
-                    {k.valor_actual_db ?? "—"}
-                  </td>
-                  <td className="py-2 font-mono text-cyan-200">
-                    <div className="flex flex-wrap items-center gap-1.5">
-                      <span>{k.valor_simulado ?? "—"}</span>
-                      {k.procedencia_simulado && (
-                        <ProvenanceBadge type={k.procedencia_simulado} />
-                      )}
-                    </div>
+              {kpisQuery.isPending ? (
+                <tr>
+                  <td colSpan={6} className="py-6 text-center text-xs text-slate-400">
+                    <span className="inline-flex items-center gap-2">
+                      <span className="h-2 w-2 animate-pulse rounded-full bg-cyan-400" />
+                      Calculando los 12 indicadores y el replay de los 14 escenarios...
+                    </span>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                (kpisQuery.data?.kpis ?? []).map((k) => (
+                  <tr key={k.id_kpi}>
+                    <td className="py-2 pr-3 font-mono text-cyan-300">{k.id_kpi}</td>
+                    <td className="py-2 pr-3 text-slate-100">{k.nombre}</td>
+                    <td className="py-2 pr-3 text-emerald-300">{k.meta_referencia}</td>
+                    <td className="py-2 pr-3 text-slate-400">{k.linea_base_ficticia}</td>
+                    <td className="py-2 pr-3 font-mono text-white">
+                      {k.valor_actual_db ?? "—"}
+                    </td>
+                    <td className="py-2 font-mono text-cyan-200">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span>{k.valor_simulado ?? "—"}</span>
+                        {k.procedencia_simulado && (
+                          <ProvenanceBadge type={k.procedencia_simulado} />
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>

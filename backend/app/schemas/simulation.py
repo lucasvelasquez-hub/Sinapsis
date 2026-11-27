@@ -156,6 +156,13 @@ class GenerateRequestsOut(BaseModel):
     created: list[SimRequestOut]
 
 
+class ResetDemoOut(BaseModel):
+    cancelled_pending: int
+    completed_dispatched: int
+    flow_unloaded: bool
+    current_sim_datetime: datetime
+
+
 class FlowInfoOut(BaseModel):
     name: str
     month: str

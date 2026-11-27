@@ -17,6 +17,7 @@ import type {
   RecommendationOut,
   RequestDetail,
   RequestSummary,
+  ResetDemoOut,
   ScenarioEvaluation,
   ScenarioSummary,
   ScoringConfig,
@@ -268,5 +269,10 @@ export const coreApi = {
     apiFetch<DivertUnitOut>("/simulation/divert", {
       method: "POST",
       body: JSON.stringify(payload),
+    }),
+
+  resetDemoSession: () =>
+    apiFetch<ResetDemoOut>("/simulation/reset-demo", {
+      method: "POST",
     }),
 };

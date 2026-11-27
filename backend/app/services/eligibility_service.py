@@ -316,10 +316,14 @@ def evaluate_eligibility(
         or u.distance_km is None
         or u.distance_km <= NEARBY_RADIUS_KM
     }
-    if not nearby_ids and hard_eligible:
-        # Zona periférica (p. ej. Barbosa/Caldas) sin móviles <=6 km: tomar las más cercanas.
-        nearby_ids = {u.unit_id for u, _ in hard_eligible[:PERIPHERAL_FALLBACK_COUNT]}
-    elif service.urgency_level in ("01", "02") and not any(
+    if len(nearby_ids) < PERIPHERAL_FALLBACK_COUNT and hard_eligible:
+        # Si hay menos de 3 móviles dentro de 6 km (p. ej. zona periférica o Bello),
+        # completar con los más cercanos para que el Top 3 compare alternativas reales.
+        for u, _ in hard_eligible:
+            nearby_ids.add(u.unit_id)
+            if len(nearby_ids) >= PERIPHERAL_FALLBACK_COUNT:
+                break
+    if service.urgency_level in ("01", "02") and not any(
         u.unit_type in AMBULANCE_TYPES for u, _ in hard_eligible if u.unit_id in nearby_ids
     ):
         # Regla R03/R04: en 01/02 conservar al menos la ambulancia más cercana para traslado/apoyo.

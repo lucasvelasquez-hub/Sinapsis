@@ -102,6 +102,7 @@ export default function SimulationPage() {
   const [closureChoice, setClosureChoice] = useState<Record<string, { state: string; centerId: string }>>({});
   const [closingIds, setClosingIds] = useState<Record<string, boolean>>({});
   const [simNotice, setSimNotice] = useState<string | null>(null);
+  const [confirmReset, setConfirmReset] = useState(false);
 
   // Reloj vivo: el reloj del backend avanza al ritmo de la animación (ver liveClock.ts), así la
   // llegada simulada refleja el recorrido real por calles y el tráfico.
@@ -570,6 +571,23 @@ export default function SimulationPage() {
     },
   });
 
+  const resetDemoMutation = useMutation({
+    mutationFn: coreApi.resetDemoSession,
+    onSuccess: (res) => {
+      setConfirmReset(false);
+      setActiveRec(null);
+      setHeldTransfers([]);
+      setSimNotice(
+        `Sesión de demo reiniciada: ${res.cancelled_pending} pendientes cerradas, ${res.completed_dispatched} en atención finalizadas y flota liberada.`
+      );
+      queryClient.invalidateQueries({ queryKey: ["simulation-state"] });
+      queryClient.invalidateQueries({ queryKey: ["requests"] });
+      queryClient.invalidateQueries({ queryKey: ["analytics-overview"] });
+      queryClient.invalidateQueries({ queryKey: ["decisions"] });
+      queryClient.invalidateQueries({ queryKey: ["simulation-flow"] });
+    },
+  });
+
   const divertableEnRoute = useMemo(
     () =>
       activeRequests.filter(
@@ -671,6 +689,35 @@ export default function SimulationPage() {
           >
             Manual
           </button>
+          {confirmReset ? (
+            <div className="flex items-center gap-1.5 rounded border border-rose-500/50 bg-rose-500/10 px-2 py-1 text-xs">
+              <span className="text-rose-200">¿Limpiar cola sintética?</span>
+              <button
+                type="button"
+                onClick={() => resetDemoMutation.mutate()}
+                disabled={resetDemoMutation.isPending}
+                className="cursor-pointer rounded bg-rose-600 px-2 py-0.5 font-semibold text-white hover:bg-rose-500 disabled:opacity-50"
+              >
+                {resetDemoMutation.isPending ? "Reiniciando..." : "Sí, reiniciar"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setConfirmReset(false)}
+                className="cursor-pointer rounded border border-slate-600 px-2 py-0.5 text-slate-300 hover:bg-slate-800"
+              >
+                Cancelar
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmReset(true)}
+              title="Cierra solicitudes sintéticas abiertas, detiene el flujo y libera móviles sin borrar auditoría ni históricos"
+              className="cursor-pointer rounded border border-rose-500/40 bg-rose-500/10 px-2.5 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-500/20"
+            >
+              Reiniciar demo
+            </button>
+          )}
         </div>
       </div>
 

@@ -35,6 +35,7 @@ from app.schemas.simulation import (
     PositionsBatchOut,
     ReclassifyServiceIn,
     ReclassifyServiceOut,
+    ResetDemoOut,
     SimBaseOut,
     SimCareCenterOut,
     SimRequestOut,
@@ -763,3 +764,63 @@ def generate_random_requests(db: Session, count: int = 4) -> GenerateRequestsOut
     )
     db.commit()
     return GenerateRequestsOut(created=created_out)
+
+
+def reset_demo_session(db: Session) -> ResetDemoOut:
+    """Limpia la cola sintética abierta y libera la flota sin borrar auditoría ni históricos."""
+    from app.services.simulation_service import FLOW_KEY
+
+    sim = get_or_create_simulation_session(db, for_update=True)
+    assignments = dict(sim.active_assignments_json or {})
+    flow_unloaded = FLOW_KEY in assignments
+    sim.active_assignments_json = {}
+    sim.updated_at = utcnow()
+
+    open_synthetics = (
+        db.execute(
+            select(RawService)
+            .where(
+                RawService.is_synthetic.is_(True),
+                RawService.status.in_((ServiceStatus.PENDING, ServiceStatus.DISPATCHED)),
+            )
+            .with_for_update()
+        )
+        .scalars()
+        .all()
+    )
+
+    cancelled_pending = 0
+    completed_dispatched = 0
+    now_sim = sim.current_sim_datetime
+    for srv in open_synthetics:
+        if srv.status == ServiceStatus.PENDING:
+            srv.status = ServiceStatus.COMPLETED
+            srv.closure_state = "CANCELADO_POR_USUARIO"
+            srv.closure_datetime = max(now_sim, srv.request_datetime)
+            cancelled_pending += 1
+        elif srv.status == ServiceStatus.DISPATCHED:
+            srv.status = ServiceStatus.COMPLETED
+            srv.closure_state = "ATENDIDO_EN_SITIO"
+            if srv.arrival_datetime is None:
+                srv.arrival_datetime = max(now_sim, srv.request_datetime)
+            srv.closure_datetime = max(now_sim, srv.arrival_datetime)
+            completed_dispatched += 1
+
+    record_audit_event(
+        db,
+        event_type="DEMO_SESSION_RESET",
+        entity_type="simulation_session",
+        entity_id=sim.session_id,
+        payload={
+            "cancelled_pending": cancelled_pending,
+            "completed_dispatched": completed_dispatched,
+            "flow_unloaded": flow_unloaded,
+        },
+    )
+    db.commit()
+    return ResetDemoOut(
+        cancelled_pending=cancelled_pending,
+        completed_dispatched=completed_dispatched,
+        flow_unloaded=flow_unloaded,
+        current_sim_datetime=sim.current_sim_datetime,
+    )

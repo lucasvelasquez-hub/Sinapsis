@@ -420,6 +420,7 @@ def _rank_request(
         config.weight_workload,
         config.weight_cost,
         config.weight_coverage,
+        use_live_queue=False,
     )
     top = ranked[0] if ranked else None
     ref_uid = ref.get("id_movil")

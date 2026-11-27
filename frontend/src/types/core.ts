@@ -477,6 +477,13 @@ export interface AdvanceClockOut {
   injected_requests: number;
 }
 
+export interface ResetDemoOut {
+  cancelled_pending: number;
+  completed_dispatched: number;
+  flow_unloaded: boolean;
+  current_sim_datetime: string;
+}
+
 export interface FlowInfo {
   name: string;
   month: string;

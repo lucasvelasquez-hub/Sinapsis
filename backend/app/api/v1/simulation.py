@@ -21,6 +21,7 @@ from app.schemas.simulation import (
     PositionsBatchOut,
     ReclassifyServiceIn,
     ReclassifyServiceOut,
+    ResetDemoOut,
     SimulationEvaluationOut,
     SimulationStateOut,
 )
@@ -35,6 +36,7 @@ from app.services.simulation_control_service import (
     ingest_live_positions,
     reclassify_service_in_simulation,
     release_unit_in_simulation,
+    reset_demo_session,
 )
 from app.services.simulation_evaluation_service import evaluate_simulation
 
@@ -121,6 +123,11 @@ def simulation_load_flow(payload: FlowLoadIn, db: DbDep) -> FlowStatusOut:
 @router.post("/flow/unload", response_model=FlowStatusOut)
 def simulation_unload_flow(db: DbDep) -> FlowStatusOut:
     return unload_flow(db)
+
+
+@router.post("/reset-demo", response_model=ResetDemoOut)
+def simulation_reset_demo(db: DbDep) -> ResetDemoOut:
+    return reset_demo_session(db)
 
 
 @router.get("/evaluation", response_model=SimulationEvaluationOut)

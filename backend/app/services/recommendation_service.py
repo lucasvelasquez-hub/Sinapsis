@@ -27,12 +27,13 @@ from app.domain.assignment_policy import (
 )
 from app.domain.enums import RecommendationStatus, ServiceStatus, UnitRole
 from app.domain.geo import ROAD_CIRCUITY_FACTOR, haversine_km
-from app.domain.temporal import utcnow
+from app.domain.temporal import shift_covers_hour, utcnow
 from app.models.decision import Recommendation, RecommendationCandidate
 from app.models.raw import (
     RawBase,
     RawResponseTarget,
     RawService,
+    RawServiceRule,
     RawTrafficFactor,
     RawUnit,
     RawZone,
@@ -251,6 +252,10 @@ def score_candidates(
     weight_workload: float,
     weight_cost: float,
     weight_coverage: float,
+    *,
+    reserved_ids: set[str] | None = None,
+    r02_warning: str | None = None,
+    use_live_queue: bool = True,
 ) -> list[ScoredCandidate]:
     """J(j) = w_T·T + w_L·L + w_C·C + w_K·K over eligible units, sorted best first."""
     units = eligibility.eligible_units
@@ -517,13 +522,23 @@ def score_candidates(
                 ml_expected_min=ml_pred,
             )
         )
+    eff_reserved = (
+        reserved_ids
+        if reserved_ids is not None
+        else (_reserved_unit_ids(db, service) if use_live_queue else set())
+    )
+    eff_r02 = (
+        r02_warning
+        if r02_warning is not None
+        else (_pending_wait_warning(db, service) if use_live_queue else None)
+    )
     return _order_by_policy(
         scored,
         service,
         target_min,
         risky_coverage_units,
-        reserved_ids=_reserved_unit_ids(db, service),
-        r02_warning=_pending_wait_warning(db, service),
+        reserved_ids=eff_reserved,
+        r02_warning=eff_r02,
     )
 
 
@@ -577,37 +592,28 @@ def _outranks(other: RawService, current: RawService) -> bool:
     return other.service_id < current.service_id
 
 
-def _on_time_ambulance_ids(db: Session, service: RawService) -> list[str] | None:
-    """Ambulancias dentro de la meta. None si falta una celda de matriz y no hay prueba."""
-    eligibility, _ranks = evaluate_eligibility(db, service, service.request_datetime)
-    ambulances = [
-        unit
-        for unit in eligibility.eligible_units
-        if unit.unit_type in AMBULANCE_TYPES and unit.current_zone_id
-    ]
-    if not ambulances:
-        return []
-    traffic = _traffic_factor(db, service.request_datetime)
-    travel = _travel_lookup(
-        db,
-        {unit.current_zone_id for unit in ambulances if unit.current_zone_id},
-        service.zone_id,
-    )
-    target_row = db.get(RawResponseTarget, service.urgency_level)
-    target_min = float(target_row.target_response_min) if target_row else 15.0
-    on_time: list[str] = []
-    for unit in ambulances:
-        row = travel.get(unit.current_zone_id or "")
-        if row is None:
-            return None
-        arrival = round(row[1] * traffic + 2.0, 2)
-        if arrival <= target_min:
-            on_time.append(unit.unit_id)
-    return on_time
+def _unit_busy_at(active_assignments: dict, unit_id: str, when: datetime) -> bool:
+    entries = active_assignments.get(unit_id)
+    if not entries:
+        return False
+    if isinstance(entries, dict):
+        entries = [entries]
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        bu = entry.get("busy_until")
+        if not bu:
+            continue
+        try:
+            if datetime.fromisoformat(str(bu)) > when:
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _reserved_unit_ids(db: Session, service: RawService) -> set[str]:
-    """Única ambulancia a tiempo de cada 01/02 pendiente más prioritario."""
+    """Única ambulancia a tiempo de cada 01/02 pendiente más prioritario (O(1) queries)."""
     if service.status != ServiceStatus.PENDING:
         return set()
     others = (
@@ -621,12 +627,107 @@ def _reserved_unit_ids(db: Session, service: RawService) -> set[str]:
         .scalars()
         .all()
     )
+    prioritized = [other for other in others if _outranks(other, service)]
+    if not prioritized:
+        return set()
+
+    from app.services.eligibility_service import resolve_units_current_zone
+    from app.services.simulation_service import get_live_positions
+
+    amb_units = (
+        db.execute(
+            select(RawUnit).where(
+                RawUnit.active.is_(True),
+                RawUnit.unit_type.in_(tuple(AMBULANCE_TYPES)),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not amb_units:
+        return set()
+
+    bases = {b.base_id: b for b in db.execute(select(RawBase)).scalars().all()}
+    sim_session = get_or_create_simulation_session(db)
+    active_assignments = sim_session.active_assignments_json or {}
+    live_positions = get_live_positions(sim_session)
+    resolved_zones = resolve_units_current_zone(
+        db, amb_units, bases, service.request_datetime, sim_session=sim_session
+    )
+    unit_zone: dict[str, str] = {}
+    for u in amb_units:
+        pos = live_positions.get(u.unit_id) if isinstance(live_positions, dict) else None
+        z = (pos.get("zone_id") if isinstance(pos, dict) else None) or resolved_zones.get(u.unit_id)
+        if z:
+            unit_zone[u.unit_id] = str(z)
+
+    origin_zones = set(unit_zone.values())
+    dest_zones = {o.zone_id for o in prioritized if o.zone_id}
+    if not origin_zones or not dest_zones:
+        return set()
+
+    travel_matrix: dict[tuple[str, str], float] = {
+        (r.origin_zone_id, r.destination_zone_id): float(r.valley_time_min)
+        for r in db.execute(
+            select(RawZoneTravelTime).where(
+                RawZoneTravelTime.origin_zone_id.in_(origin_zones),
+                RawZoneTravelTime.destination_zone_id.in_(dest_zones),
+            )
+        )
+        .scalars()
+        .all()
+    }
+    targets = {
+        t.urgency_level: float(t.target_response_min)
+        for t in db.execute(
+            select(RawResponseTarget).where(RawResponseTarget.urgency_level.in_(tuple(VITAL)))
+        )
+        .scalars()
+        .all()
+    }
+    allowed_rules = {
+        (r.urgency_level, r.unit_type)
+        for r in db.execute(
+            select(RawServiceRule).where(
+                RawServiceRule.eligible.is_(True),
+                RawServiceRule.urgency_level.in_(tuple(VITAL)),
+            )
+        )
+        .scalars()
+        .all()
+    }
+    traffic_rows = db.execute(select(RawTrafficFactor)).scalars().all()
+    traffic_map: dict[tuple[str, int], float] = {}
+    for tf in traffic_rows:
+        for hr in range(int(tf.hour_start), int(tf.hour_end) + 1):
+            traffic_map[(tf.day_type, hr)] = float(tf.factor)
+
     reserved: set[str] = set()
-    for other in others:
-        if not _outranks(other, service):
-            continue
-        on_time = _on_time_ambulance_ids(db, other)
-        if on_time is not None and len(on_time) == 1:
+    for other in prioritized:
+        target_min = targets.get(other.urgency_level, 15.0)
+        traffic = traffic_map.get(
+            (_day_type(other.request_datetime), other.request_datetime.hour), 1.0
+        )
+        on_time: list[str] = []
+        missing_cell = False
+        for u in amb_units:
+            if (other.urgency_level, u.unit_type) not in allowed_rules:
+                continue
+            if not shift_covers_hour(u.shift, other.request_datetime.hour):
+                continue
+            if _unit_busy_at(active_assignments, u.unit_id, other.request_datetime):
+                continue
+            oz = unit_zone.get(u.unit_id)
+            if not oz:
+                continue
+            base_min = travel_matrix.get((oz, other.zone_id))
+            if base_min is None:
+                missing_cell = True
+                break
+            arrival = round(base_min * traffic + 2.0, 2)
+            if arrival <= target_min:
+                on_time.append(u.unit_id)
+        if not missing_cell and len(on_time) == 1:
             reserved.add(on_time[0])
     return reserved
 
